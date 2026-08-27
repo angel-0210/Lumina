@@ -16,21 +16,24 @@ import { useAppStore } from '../store';
 const getApiBaseUrl = (): string => {
   const envUrl = process.env.EXPO_PUBLIC_API_URL;
   
-  // Use explicit environment URL if it is set and is not localhost/0.0.0.0
-  if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1') && !envUrl.includes('0.0.0.0')) {
+  // Use explicit environment URL if it is set (production/web)
+  if (envUrl && envUrl.trim()) {
     return envUrl;
   }
 
   // In Expo development, auto-detect host machine's LAN IP address from Metro server
-  const hostUri = Constants.expoConfig?.hostUri;
-  if (hostUri) {
-    const ip = hostUri.split(':')[0];
-    if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
-      return `http://${ip}:8000`;
+  if (Platform.OS !== 'web') {
+    const hostUri = Constants.expoConfig?.hostUri;
+    if (hostUri) {
+      const ip = hostUri.split(':')[0];
+      if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
+        return `http://${ip}:8000`;
+      }
     }
   }
 
-  return envUrl ?? 'http://localhost:8000';
+  // Default fallback
+  return 'http://localhost:8000';
 };
 
 const BASE_URL = getApiBaseUrl();

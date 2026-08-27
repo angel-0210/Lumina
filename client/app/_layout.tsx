@@ -1,7 +1,8 @@
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import { Stack, usePathname, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { useAppStore, restoreAuth } from '../store';
 import { authApi, apiErrorMessage } from '../services/api';
@@ -28,33 +29,38 @@ export default function RootLayout() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const stored = await restoreAuth();
-      if (cancelled) return;
+      try {
+        const stored = await restoreAuth();
+        if (cancelled) return;
 
-      if (stored?.accessToken) {
-        try {
-          // Pre-populate store with stored credentials so the /me request is authenticated
-          setAuth(stored.accessToken, stored.refreshToken, stored.user);
-          // Validate the stored token by calling /me.
-          const user = await authApi.me();
-          if (!cancelled) {
-            setAuth(stored.accessToken, stored.refreshToken, user);
-          }
-        } catch {
-          // Token may be expired — try to refresh.
-          if (stored.refreshToken) {
-            try {
-              const session = await authApi.refresh(stored.refreshToken);
-              if (!cancelled) {
-                setAuth(session.access_token, session.refresh_token ?? null, session.user);
+        if (stored?.accessToken) {
+          try {
+            // Pre-populate store with stored credentials so the /me request is authenticated
+            setAuth(stored.accessToken, stored.refreshToken, stored.user);
+            // Validate the stored token by calling /me.
+            const user = await authApi.me();
+            if (!cancelled) {
+              setAuth(stored.accessToken, stored.refreshToken, user);
+            }
+          } catch {
+            // Token may be expired — try to refresh.
+            if (stored.refreshToken) {
+              try {
+                const session = await authApi.refresh(stored.refreshToken);
+                if (!cancelled) {
+                  setAuth(session.access_token, session.refresh_token ?? null, session.user);
+                }
+              } catch {
+                if (!cancelled) clearAuth();
               }
-            } catch {
+            } else {
               if (!cancelled) clearAuth();
             }
-          } else {
-            if (!cancelled) clearAuth();
           }
         }
+      } catch (e) {
+        console.error('Session restore error:', e);
+        if (!cancelled) clearAuth();
       }
 
       if (!cancelled) setSessionRestored();

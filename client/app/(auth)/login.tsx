@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -19,6 +19,15 @@ import Button from '../../components/Button';
 import WebLogin from '../../web/pages/Login';
 
 export default function LoginScreen() {
+  const accessToken = useAppStore((state) => state.accessToken);
+
+  // Redirect to home if already logged in
+  useEffect(() => {
+    if (accessToken) {
+      router.replace('/');
+    }
+  }, [accessToken]);
+
   if (Platform.OS === 'web') {
     return <WebLogin />;
   }

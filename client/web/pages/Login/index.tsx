@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -14,6 +14,7 @@ import { authApi, apiErrorMessage } from '../../../services/api';
 
 export default function WebLogin() {
   const setAuth = useAppStore((state) => state.setAuth);
+  const accessToken = useAppStore((state) => state.accessToken);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,6 +25,13 @@ export default function WebLogin() {
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [generalError, setGeneralError] = useState<string | null>(null);
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (accessToken) {
+      router.replace('/');
+    }
+  }, [accessToken]);
 
   const handleLogin = async () => {
     setEmailError('');
@@ -67,6 +75,16 @@ export default function WebLogin() {
         body {
           background-color: #131313 !important;
           font-family: 'Inter', sans-serif !important;
+          margin: 0;
+          padding: 0;
+        }
+        html {
+          margin: 0;
+          padding: 0;
+          background-color: #131313 !important;
+        }
+        #root {
+          background-color: #131313 !important;
         }
       `}</style>
       
