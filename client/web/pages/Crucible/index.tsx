@@ -109,7 +109,8 @@ export default function WebCrucible() {
       
       setActiveSessionId(res.sessionId);
       
-      // Initialize a mocked session detail structure locally
+      // Optimistically populate the local session state from the API start response
+      // to avoid a second network round-trip for the initial display.
       setActiveSession({
         id: res.sessionId,
         topic: res.topic,

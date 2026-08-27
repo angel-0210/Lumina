@@ -20,7 +20,10 @@ export default function DocumentDetailScreen() {
   if (Platform.OS === 'web') {
     return <WebDocumentDetail />;
   }
+  return <MobileDocumentDetailScreen />;
+}
 
+function MobileDocumentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [doc, setDoc] = useState<DocumentDetail | null>(null);
   const [loading, setLoading] = useState(true);

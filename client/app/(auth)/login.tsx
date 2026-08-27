@@ -22,7 +22,10 @@ export default function LoginScreen() {
   if (Platform.OS === 'web') {
     return <WebLogin />;
   }
+  return <MobileLoginScreen />;
+}
 
+function MobileLoginScreen() {
   const setAuth = useAppStore((state) => state.setAuth);
 
   const [email, setEmail] = useState('');

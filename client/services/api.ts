@@ -47,7 +47,6 @@ const client: AxiosInstance = axios.create({
 // Attach auth token to every request.
 client.interceptors.request.use((config) => {
   const token = useAppStore.getState().accessToken;
-  console.log('[Axios Interceptor] URL:', config.url, 'Token:', token ? 'FOUND' : 'MISSING');
   if (token) {
     config.headers = config.headers ?? {};
     if (typeof config.headers.set === 'function') {

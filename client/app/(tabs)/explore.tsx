@@ -29,8 +29,6 @@ interface LocalMessage {
 
 const LOADING_ID = '__loading__';
 
-import WebDashboard from '../../web/pages/Dashboard';
-
 export default function ExploreScreen() {
   const accessToken = useAppStore((state) => state.accessToken);
   const sessionRestored = useAppStore((state) => state.sessionRestored);
@@ -47,10 +45,16 @@ export default function ExploreScreen() {
     );
   }
 
+  // Explore (RAG chat) is a mobile-only feature.
+  // On web, WebLayout has no Explore nav item — this route is never reached.
   if (Platform.OS === 'web') {
-    return <WebDashboard />;
+    return null;
   }
 
+  return <MobileExploreScreen />;
+}
+
+function MobileExploreScreen() {
   const { docId } = useLocalSearchParams<{ docId?: string }>();
   const insets = useSafeAreaInsets();
   const [isKeyboardVisible, setKeyboardVisible] = useState(false);

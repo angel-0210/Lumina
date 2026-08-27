@@ -85,6 +85,10 @@ export default function LearnHub() {
     return <WebLearning />;
   }
 
+  return <MobileLearnHub />;
+}
+
+function MobileLearnHub() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [topics, setTopics] = useState<Topic[]>([]);

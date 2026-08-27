@@ -22,7 +22,10 @@ export default function CrucibleSessionScreen() {
   if (Platform.OS === 'web') {
     return <WebCrucible />;
   }
+  return <MobileCrucibleSessionScreen />;
+}
 
+function MobileCrucibleSessionScreen() {
   const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
   const insets = useSafeAreaInsets();
   

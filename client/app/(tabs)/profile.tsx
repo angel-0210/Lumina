@@ -39,8 +39,13 @@ export default function ProfileScreen() {
     return <WebSettings />;
   }
 
+  return <MobileProfileScreen />;
+}
+
+function MobileProfileScreen() {
   const resetAppState = useAppStore((state) => state.resetAppState);
   const user = useAppStore((state) => state.user);
+  const accessToken = useAppStore((state) => state.accessToken);
   const refreshToken = useAppStore((state) => state.refreshToken);
   const setAuth = useAppStore((state) => state.setAuth);
 

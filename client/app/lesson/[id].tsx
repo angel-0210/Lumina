@@ -28,7 +28,10 @@ export default function LessonPlayerScreen() {
   if (Platform.OS === 'web') {
     return <WebLessonPlayer />;
   }
+  return <MobileLessonPlayerScreen />;
+}
 
+function MobileLessonPlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [loading, setLoading] = useState(true);
@@ -70,7 +73,7 @@ export default function LessonPlayerScreen() {
       const res = await mediaApi.list(id);
       setMediaAssets(res.items);
     } catch (err) {
-      console.log('Failed to fetch media assets:', err);
+      // Media fetch is non-fatal — suppress silently.
     }
   };
 

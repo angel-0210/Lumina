@@ -15,8 +15,16 @@ import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../../components/Button';
 import { masteryApi, apiErrorMessage, MasteryMap } from '../../services/api';
+import WebLayout from '../../web/layouts/WebLayout';
 
 export default function MasteryMapScreen() {
+  if (Platform.OS === 'web') {
+    return <WebMasteryMapScreen />;
+  }
+  return <MobileMasteryMapScreen />;
+}
+
+function useMasteryData() {
   const { topicId } = useLocalSearchParams<{ topicId: string }>();
   const [mapData, setMapData] = useState<MasteryMap | null>(null);
   const [loading, setLoading] = useState(true);
@@ -24,18 +32,120 @@ export default function MasteryMapScreen() {
   useEffect(() => {
     if (topicId) {
       masteryApi.map(topicId)
-        .then((res) => {
-          setMapData(res);
-        })
+        .then((res) => { setMapData(res); })
         .catch((err) => {
-          Alert.alert('Error', apiErrorMessage(err, 'Failed to fetch mastery map.'));
+          if (Platform.OS !== 'web') {
+            Alert.alert('Error', apiErrorMessage(err, 'Failed to fetch mastery map.'));
+          }
           router.back();
         })
-        .finally(() => {
-          setLoading(false);
-        });
+        .finally(() => { setLoading(false); });
     }
   }, [topicId]);
+
+  return { topicId: topicId as string, mapData, loading };
+}
+
+function WebMasteryMapScreen() {
+  const { topicId, mapData, loading } = useMasteryData();
+
+  return (
+    <WebLayout>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#991bf7" />
+          <Text style={styles.loadingText}>Fetching understanding map...</Text>
+        </View>
+      ) : !mapData ? null : (
+        <ScrollView
+          contentContainerStyle={[styles.scrollContainer, { maxWidth: 800, alignSelf: 'center', width: '100%' }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.7}>
+            <Ionicons name="arrow-back" size={20} color="#b8bdd4" />
+            <Text style={{ color: '#b8bdd4', marginLeft: 8, fontSize: 14 }}>Back</Text>
+          </TouchableOpacity>
+
+          <View style={[styles.overviewCard, { marginTop: 16 }]}>
+            <Text style={styles.topicLabel}>Mastery Roadmap</Text>
+            <Text style={styles.topicName}>{mapData.topicName}</Text>
+            <View style={styles.progressContainer}>
+              <View style={styles.progressRow}>
+                <Text style={styles.progressText}>Mastery Quotient</Text>
+                <Text style={styles.progressPercent}>{Math.round(mapData.overallMastery * 100)}%</Text>
+              </View>
+              <View style={styles.progressBarBg}>
+                <View style={[styles.progressBarFill, { width: `${mapData.overallMastery * 100}%` as any }]} />
+              </View>
+            </View>
+          </View>
+
+          <Text style={styles.sectionTitle}>Conceptual Nodes</Text>
+
+          {mapData.concepts.length === 0 ? (
+            <Text style={styles.noNodesText}>No concept nodes registered for this topic yet.</Text>
+          ) : (
+            <View style={styles.nodesTimeline}>
+              {mapData.concepts.map((concept, index) => {
+                const isCompleted = concept.status === 'Mastered';
+                const isLocked = concept.status === 'Locked';
+                const isReviewing = concept.status === 'Reviewing';
+                return (
+                  <View key={concept.id} style={styles.nodeWrapper}>
+                    {index < mapData.concepts.length - 1 && (
+                      <View style={[
+                        styles.connectorLine,
+                        concept.progress > 0 && mapData.concepts[index + 1].status !== 'Locked'
+                          ? styles.connectorLineActive
+                          : null
+                      ]} />
+                    )}
+                    <View style={styles.nodeItem}>
+                      <View style={[
+                        styles.nodeIconBox,
+                        isCompleted && styles.nodeCompleted,
+                        isReviewing && styles.nodeReviewing,
+                        isLocked && styles.nodeLocked
+                      ]}>
+                        <Ionicons
+                          name={isCompleted ? 'checkmark-circle' : isReviewing ? 'school' : 'lock-closed'}
+                          size={20}
+                          color={isCompleted ? '#4caf50' : isReviewing ? '#dfb7ff' : '#6e748a'}
+                        />
+                      </View>
+                      <View style={styles.nodeDetails}>
+                        <Text style={[styles.conceptTitle, isLocked && styles.conceptTitleLocked]}>{concept.name}</Text>
+                        <Text style={styles.conceptStatus}>{concept.status} • {Math.round(concept.progress * 100)}% Mastery</Text>
+                      </View>
+                      {!isLocked && (
+                        <TouchableOpacity style={styles.challengeButton} onPress={() => router.push('/crucible')} activeOpacity={0.7}>
+                          <Text style={styles.challengeText}>Challenge</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          <View style={styles.actionPanel}>
+            <TouchableOpacity
+              style={[styles.challengeButton, { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12 }]}
+              onPress={() => router.push(`/lesson/${topicId}`)}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.challengeText, { fontSize: 14 }]}>Accelerate Topic Mastery →</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      )}
+    </WebLayout>
+  );
+}
+
+function MobileMasteryMapScreen() {
+  const { topicId, mapData, loading } = useMasteryData();
 
   if (loading) {
     return (

@@ -29,8 +29,6 @@ function getGreeting(): string {
 export default function HomeDashboard() {
   const accessToken = useAppStore((state) => state.accessToken);
   const sessionRestored = useAppStore((state) => state.sessionRestored);
-  const clearAuth = useAppStore((state) => state.clearAuth);
-  const user = useAppStore((state) => state.user);
 
   // Wait for session restore before redirecting
   if (sessionRestored && !accessToken) {
@@ -48,6 +46,14 @@ export default function HomeDashboard() {
   if (Platform.OS === 'web') {
     return <WebDashboard />;
   }
+
+  return <MobileHomeDashboard />;
+}
+
+function MobileHomeDashboard() {
+  const accessToken = useAppStore((state) => state.accessToken);
+  const clearAuth = useAppStore((state) => state.clearAuth);
+  const user = useAppStore((state) => state.user);
 
   const [documents, setDocuments] = useState<DocumentListItem[]>([]);
   const [mastery, setMastery] = useState<MasterySummaryItem[]>([]);
@@ -77,11 +83,6 @@ export default function HomeDashboard() {
       fetchData();
     }
   }, [accessToken, fetchData]);
-
-  // Wait for session restore before redirecting
-  if (sessionRestored && !accessToken) {
-    return <Redirect href="/signup" />;
-  }
 
   const handleRefresh = () => {
     setRefreshing(true);

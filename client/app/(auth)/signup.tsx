@@ -22,7 +22,10 @@ export default function SignupScreen() {
   if (Platform.OS === 'web') {
     return <WebSignup />;
   }
+  return <MobileSignupScreen />;
+}
 
+function MobileSignupScreen() {
   const setAuth = useAppStore((state) => state.setAuth);
   
   const [fullName, setFullName] = useState('');
