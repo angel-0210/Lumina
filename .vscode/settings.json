@@ -1,0 +1,11 @@
+{
+  "python.defaultInterpreterPath": "server/.venv/Scripts/python.exe",
+  "python.analysis.extraPaths": [
+    "./server"
+  ],
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": [
+    "server/tests"
+  ]
+}
