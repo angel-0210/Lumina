@@ -49,17 +49,16 @@ const client: AxiosInstance = axios.create({
 
 // Attach auth token to every request.
 // The token is read from the Zustand store at request time, so it's always current.
+// We attach the header if a token exists, regardless of sessionRestored status,
+// because /auth/me is called DURING session restore (before sessionRestored is set).
 client.interceptors.request.use((config) => {
-  const { accessToken, sessionRestored } = useAppStore.getState();
-  
-  // Only attach the Authorization header if we have a token AND session has been restored.
-  // This prevents sending missing auth errors during app startup while session restoration is pending.
-  if (accessToken && sessionRestored) {
+  const token = useAppStore.getState().accessToken;
+  if (token) {
     config.headers = config.headers ?? {};
     if (typeof config.headers.set === 'function') {
-      config.headers.set('Authorization', `Bearer ${accessToken}`);
+      config.headers.set('Authorization', `Bearer ${token}`);
     } else {
-      config.headers['Authorization'] = `Bearer ${accessToken}`;
+      config.headers['Authorization'] = `Bearer ${token}`;
     }
   }
   return config;
