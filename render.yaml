@@ -1,37 +1,68 @@
-# Simple Python Native Deployment for Lumina Backend on Render
+# Render deployment — Lumina Backend (FastAPI) only.
+# Web (Vercel) and Mobile (EAS) are deployed independently.
 services:
   - type: web
     name: lumina-backend
     env: python
     plan: free
-    
-    # Render automatically installs python runtime. We just install packages.
-    buildCommand: pip install -r server/requirements.txt
-    
-    # Run migrations and start uvicorn
-    startCommand: cd server && python run_migrations.py && uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    
+    rootDir: server
+
+    # Install Python dependencies from server/requirements.txt
+    buildCommand: pip install -r requirements.txt
+
+    # Run migrations then start uvicorn (PORT is injected by Render automatically)
+    startCommand: python run_migrations.py && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
+    healthCheckPath: /health
+
     envVars:
       - key: APP_ENV
         value: production
       - key: LOG_LEVEL
         value: INFO
-      
-      # Managed PostgreSQL connection string
+      - key: LOG_JSON
+        value: true
+
+      # ── Database ────────────────────────────────────────────────────────────
+      # Managed PostgreSQL connection string — filled from Render Postgres add-on
       - key: DATABASE_URL
         fromDatabase:
           name: lumina-db
           property: connectionString
-      
-      # Third-party configurations (fill in Render Dashboard UI)
+
+      # ── Supabase ────────────────────────────────────────────────────────────
+      # Set these values in the Render Dashboard → Environment (sync: false = secret)
       - key: SUPABASE_URL
         sync: false
-      - key: SUPABASE_KEY
+      # Anon/public key used for GoTrue token fallback verification
+      - key: SUPABASE_ANON_KEY
         sync: false
+      # Service-role key for storage/RLS-bypass operations (server-side only)
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # HS256 JWT secret for fast local token verification (Project Settings → API → JWT Secret)
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+
+      # ── Cloudinary ──────────────────────────────────────────────────────────
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+
+      # ── AI ──────────────────────────────────────────────────────────────────
       - key: GEMINI_API_KEY
         sync: false
-      - key: JWT_SECRET
-        generateValue: true
+
+      # ── Security ────────────────────────────────────────────────────────────
+      # Comma-separated list of allowed CORS origins.
+      # Add your exact Vercel production URL here, e.g.:
+      #   https://lumina-web.vercel.app,http://localhost:8081,http://localhost:3000
+      # Leave as * only during initial bringup; restrict once Vercel URL is known.
+      - key: CORS_ORIGINS
+        value: "https://lumina-web.vercel.app,https://lumina-web-git-main.vercel.app,http://localhost:8081,http://localhost:3000,http://localhost:19006"
 
 databases:
   - name: lumina-db
