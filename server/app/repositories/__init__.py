@@ -18,6 +18,7 @@ from . import (  # noqa: F401
     media_repo,
     message_repo,
     profile_repo,
+    topic_repo,
 )
 
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     "mastery_repo",
     "media_repo",
     "audit_repo",
+    "topic_repo",
 ]

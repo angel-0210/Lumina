@@ -16,8 +16,13 @@ import { useAppStore } from '../../store';
 import { authApi, apiErrorMessage } from '../../services/api';
 import Input from '../../components/Input';
 import Button from '../../components/Button';
+import WebSignup from '../../web/pages/Login/Signup';
 
 export default function SignupScreen() {
+  if (Platform.OS === 'web') {
+    return <WebSignup />;
+  }
+
   const setAuth = useAppStore((state) => state.setAuth);
   
   const [fullName, setFullName] = useState('');
@@ -80,8 +85,8 @@ export default function SignupScreen() {
     if (!password) {
       setPasswordError('Access Key (Password) is required');
       isValid = false;
-    } else if (password.length < 6) {
-      setPasswordError('Password must be at least 6 characters');
+    } else if (password.length < 8) {
+      setPasswordError('Password must be at least 8 characters');
       isValid = false;
     }
 

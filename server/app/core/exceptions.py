@@ -114,7 +114,24 @@ class ProviderError(AppError):
 
     status_code = 502
     code = "provider_error"
-    message = "An upstream provider returned an error."
+    message = "The service is temporarily unavailable. Please try again shortly."
+
+    def __init__(
+        self,
+        message: Optional[str] = None,
+        *,
+        code: Optional[str] = None,
+        details: Any = None,
+        status_code: Optional[int] = None,
+    ) -> None:
+        if message:
+            logger.warning("Provider error details: %s", message)
+        super().__init__(
+            message=self.message,
+            code=code,
+            details=details,
+            status_code=status_code,
+        )
 
 
 def _json_error(
@@ -171,7 +188,21 @@ def register_exception_handlers(app: FastAPI) -> None:
             429: "rate_limited",
             503: "service_unavailable",
         }.get(exc.status_code, "http_error")
-        message = exc.detail if isinstance(exc.detail, str) else "Request failed."
+        
+        # User-friendly mapping for Starlette HTTP exception messages
+        message = {
+            400: "The request was invalid.",
+            401: "Authentication is required.",
+            403: "You do not have permission to perform this action.",
+            404: "The requested resource was not found.",
+            405: "This HTTP method is not allowed.",
+            409: "The request conflicts with the current state.",
+            413: "The uploaded file is too large.",
+            415: "The uploaded file type is not supported.",
+            429: "Rate limit exceeded. Please slow down.",
+            503: "A required service is not available.",
+        }.get(exc.status_code, "Something went wrong while processing your request. Please try again.")
+        
         return _json_error(exc.status_code, code, message, headers=getattr(exc, "headers", None))
 
     @app.exception_handler(Exception)
@@ -179,3 +210,4 @@ def register_exception_handlers(app: FastAPI) -> None:
         # Never leak internals. Log full detail server-side only.
         logger.exception("unhandled_exception path=%s", request.url.path)
         return _json_error(500, "internal_error", "An unexpected error occurred.")
+

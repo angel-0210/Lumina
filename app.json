@@ -11,6 +11,8 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.angel.lumina",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./client/assets/images/android-icon-foreground.png",
@@ -44,6 +46,15 @@
     ],
     "experiments": {
       "typedRoutes": false
-    }
+    },
+    "extra": {
+      "router": {
+        "root": "./client/app"
+      },
+      "eas": {
+        "projectId": "0d146007-a55c-4cf5-ae14-a7aebaca1640"
+      }
+    },
+    "owner": "angel-dev"
   }
 }

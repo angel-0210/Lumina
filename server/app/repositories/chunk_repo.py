@@ -200,7 +200,7 @@ def get_by_ids(conn: Connection, user_id: str, chunk_ids: list[str]) -> list[dic
         SELECT c.id, c.document_id, c.content, c.chunk_index, d.title AS document_title
         FROM document_chunks c
         JOIN documents d ON d.id = c.document_id
-        WHERE d.user_id = :user_id AND c.id = ANY(:ids)
+        WHERE d.user_id = :user_id AND c.id::text = ANY(:ids)
         """
     )
     return rows_to_dicts(conn.execute(sql, {"user_id": user_id, "ids": chunk_ids}))
@@ -212,4 +212,40 @@ def count_for_document(conn: Connection, document_id: str) -> int:
             text("SELECT count(*) FROM document_chunks WHERE document_id = :doc"),
             {"doc": document_id},
         ).scalar_one()
+    )
+
+
+def get_first_for_topic_extraction(
+    conn: Connection,
+    *,
+    user_id: str,
+    document_id: str,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Fetch the first *limit* chunks for a document ordered by chunk_index.
+
+    Used as a direct fallback when vector/keyword search returns no results
+    during topic extraction (e.g. when the embedding model is unavailable or
+    the similarity query matches nothing).  Never raises on empty results.
+    """
+    sql = text(
+        """
+        SELECT
+            c.id            AS id,
+            c.document_id   AS document_id,
+            c.content       AS content,
+            c.chunk_index   AS chunk_index,
+            d.title         AS document_title,
+            1.0             AS score
+        FROM document_chunks c
+        JOIN documents d ON d.id = c.document_id
+        WHERE d.user_id   = :user_id
+          AND d.deleted_at IS NULL
+          AND c.document_id = :document_id
+        ORDER BY c.chunk_index ASC
+        LIMIT :limit
+        """
+    )
+    return rows_to_dicts(
+        conn.execute(sql, {"user_id": user_id, "document_id": document_id, "limit": limit})
     )

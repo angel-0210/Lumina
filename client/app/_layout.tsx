@@ -33,6 +33,8 @@ export default function RootLayout() {
 
       if (stored?.accessToken) {
         try {
+          // Pre-populate store with stored credentials so the /me request is authenticated
+          setAuth(stored.accessToken, stored.refreshToken, stored.user);
           // Validate the stored token by calling /me.
           const user = await authApi.me();
           if (!cancelled) {
@@ -78,13 +80,7 @@ function RootLayoutNav() {
     <ThemeProvider value={DarkTheme}>
       <Stack
         screenOptions={{
-          headerStyle: {
-            backgroundColor: '#0d1117',
-          },
-          headerTintColor: '#b8bdd4',
-          headerTitleStyle: {
-            fontWeight: 'bold',
-          },
+          headerShown: false,
           contentStyle: {
             backgroundColor: '#0d1117',
           },

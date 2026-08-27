@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from app.core.config import settings
@@ -18,7 +19,13 @@ from app.core.logging import get_logger
 from app.core.security import AuthPrincipal
 from app.jobs import workers
 from app.jobs.manager import job_manager
-from app.repositories import ai_job_repo, document_repo, learning_repo
+from app.repositories import (
+    ai_job_repo,
+    assessment_repo,
+    document_repo,
+    learning_repo,
+    mastery_repo,
+)
 from app.schemas.job import JobRef
 from app.schemas.learning import (
     Lesson,
@@ -69,7 +76,7 @@ def _lesson_progress(status: Optional[str]) -> float:
     return 1.0 if (status or "").lower() == "completed" else 0.0
 
 
-def _session_to_topic(row: dict[str, Any], *, total_scenes: int) -> Topic:
+def _session_to_topic(row: dict[str, Any], *, total_scenes: int, mastery: float = 0.0) -> Topic:
     doc_title = row.get("document_title") or ""
     return Topic(
         id=row["id"],
@@ -77,7 +84,7 @@ def _session_to_topic(row: dict[str, Any], *, total_scenes: int) -> Topic:
         subject=doc_title,
         desc="",
         lessonsCount=1,
-        mastery=0.0,
+        mastery=mastery,
         documentId=row["document_id"],
         documentTitle=doc_title,
         totalScenes=total_scenes,
@@ -114,7 +121,48 @@ def list_topics(
     )
     total = learning_repo.count_sessions(conn, principal.id, document_id=document_id)
     counts = learning_repo.scene_counts(conn, [r["id"] for r in rows])
-    topics = [_session_to_topic(r, total_scenes=counts.get(str(r["id"]), 0)) for r in rows]
+
+    mastery_map = {}
+    if rows:
+        session_ids = [str(r["id"]) for r in rows]
+        if conn.dialect.name == "sqlite":
+            stmt = text(
+                f"""
+                SELECT
+                    a.learning_session_id AS session_id,
+                    AVG(cs.mastery)       AS avg_mastery
+                FROM assessment_sessions a
+                JOIN concept_scores cs ON cs.assessment_session_id = a.id
+                WHERE a.learning_session_id IN ({", ".join(f"'{sid}'" for sid in session_ids)})
+                GROUP BY a.learning_session_id
+                """
+            )
+            res = conn.execute(stmt)
+        else:
+            stmt = text(
+                """
+                SELECT
+                    a.learning_session_id AS session_id,
+                    AVG(cs.mastery)       AS avg_mastery
+                FROM assessment_sessions a
+                JOIN concept_scores cs ON cs.assessment_session_id = a.id
+                WHERE a.learning_session_id::text = ANY(:session_ids)
+                GROUP BY a.learning_session_id
+                """
+            )
+            res = conn.execute(stmt, {"session_ids": session_ids})
+
+        for row_data in res:
+            mastery_map[str(row_data[0])] = float(row_data[1] or 0.0) / 100.0
+
+    topics = [
+        _session_to_topic(
+            r,
+            total_scenes=counts.get(str(r["id"]), 0),
+            mastery=mastery_map.get(str(r["id"]), 0.0),
+        )
+        for r in rows
+    ]
     return topics, total
 
 
@@ -140,7 +188,13 @@ def get_topic(conn: Connection, principal: AuthPrincipal, topic_id: str) -> Topi
     if row is None:
         raise NotFoundError("Topic not found.")
     total = learning_repo.count_scenes(conn, topic_id)
-    return _session_to_topic(row, total_scenes=total)
+
+    assessment = assessment_repo.get_by_learning_session(conn, topic_id, principal.id)
+    mastery = 0.0
+    if assessment:
+        mastery = assessment_repo.average_mastery(conn, assessment["id"]) / 100.0
+
+    return _session_to_topic(row, total_scenes=total, mastery=mastery)
 
 
 def get_lesson(conn: Connection, principal: AuthPrincipal, lesson_id: str) -> Lesson:
@@ -179,8 +233,14 @@ def generate_lesson(
             "generating a lesson."
         )
 
+    focus_title = req.focus or ""
+    if not focus_title:
+        doc_topics = topic_repo.list_topics_for_document(conn, req.document_id, principal.id)
+        if doc_topics:
+            focus_title = doc_topics[0].get("title") or ""
+
     session = learning_repo.create_session(
-        conn, user_id=principal.id, document_id=req.document_id, title=None, status="active"
+        conn, user_id=principal.id, document_id=req.document_id, title=focus_title or doc.get("title"), status="active"
     )
     ai_job = ai_job_repo.create(
         conn, learning_session_id=session["id"], job_type="scene_generation", status="pending"
@@ -194,7 +254,7 @@ def generate_lesson(
         entity_id=session["id"],
         session_id=session["id"],
         document_id=req.document_id,
-        focus=req.focus or "",
+        focus=focus_title,
         scene_count=scene_count,
         ai_job_id=ai_job["id"],
     )

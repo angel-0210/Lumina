@@ -8,9 +8,32 @@
  *  - On 401 responses, clears the auth store and lets the root layout redirect.
  */
 import axios, { AxiosError, AxiosInstance, AxiosResponse } from 'axios';
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 import { useAppStore } from '../store';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://192.168.1.6:8000';
+// Helper to resolve the correct host machine API URL dynamically during development
+const getApiBaseUrl = (): string => {
+  const envUrl = process.env.EXPO_PUBLIC_API_URL;
+  
+  // Use explicit environment URL if it is set and is not localhost/0.0.0.0
+  if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1') && !envUrl.includes('0.0.0.0')) {
+    return envUrl;
+  }
+
+  // In Expo development, auto-detect host machine's LAN IP address from Metro server
+  const hostUri = Constants.expoConfig?.hostUri;
+  if (hostUri) {
+    const ip = hostUri.split(':')[0];
+    if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
+      return `http://${ip}:8000`;
+    }
+  }
+
+  return envUrl ?? 'http://localhost:8000';
+};
+
+const BASE_URL = getApiBaseUrl();
 const API_PREFIX = '/api/v1';
 
 // ─── Axios instance ─────────────────────────────────────────────────────────
@@ -24,9 +47,14 @@ const client: AxiosInstance = axios.create({
 // Attach auth token to every request.
 client.interceptors.request.use((config) => {
   const token = useAppStore.getState().accessToken;
+  console.log('[Axios Interceptor] URL:', config.url, 'Token:', token ? 'FOUND' : 'MISSING');
   if (token) {
     config.headers = config.headers ?? {};
-    config.headers['Authorization'] = `Bearer ${token}`;
+    if (typeof config.headers.set === 'function') {
+      config.headers.set('Authorization', `Bearer ${token}`);
+    } else {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
   }
   return config;
 });
@@ -36,12 +64,45 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (resp: AxiosResponse) => {
     if (resp.data && 'data' in resp.data) {
-      resp.data = resp.data.data;
+      const originalData = resp.data;
+      if (originalData.meta && typeof originalData.meta === 'object' && 'page' in originalData.meta) {
+        // Map backend's pagination shape to the format expected by the frontend code
+        resp.data = {
+          items: originalData.data,
+          total: originalData.meta.total ?? 0,
+          page: originalData.meta.page ?? 1,
+          page_size: originalData.meta.page_size ?? 20,
+          total_pages: originalData.meta.total_pages ?? 0,
+        };
+      } else {
+        resp.data = originalData.data;
+      }
     }
     return resp;
   },
-  (error: AxiosError) => {
-    if (error.response?.status === 401) {
+  async (error: AxiosError) => {
+    const originalRequest = error.config as any;
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+      originalRequest._retry = true;
+      const refreshToken = useAppStore.getState().refreshToken;
+      if (refreshToken) {
+        try {
+          const session = await authApi.refresh(refreshToken);
+          useAppStore.getState().setAuth(session.access_token, session.refresh_token ?? null, session.user);
+          
+          if (originalRequest.headers) {
+            if (typeof originalRequest.headers.set === 'function') {
+              originalRequest.headers.set('Authorization', `Bearer ${session.access_token}`);
+            } else {
+              originalRequest.headers['Authorization'] = `Bearer ${session.access_token}`;
+            }
+          }
+          return client(originalRequest);
+        } catch (refreshErr) {
+          useAppStore.getState().clearAuth();
+          return Promise.reject(refreshErr);
+        }
+      }
       useAppStore.getState().clearAuth();
     }
     return Promise.reject(error);
@@ -51,16 +112,53 @@ client.interceptors.response.use(
 // ─── Helper to extract a human-readable error message ───────────────────────
 
 export function apiErrorMessage(err: unknown, fallback = 'Something went wrong.'): string {
+  // Always log the error to developer console/logs first
+  console.warn('[API Error Logged]:', err);
+
   if (axios.isAxiosError(err)) {
-    const body = err.response?.data as Record<string, unknown> | undefined;
-    const detail = body?.detail ?? body?.message ?? body?.error;
-    if (typeof detail === 'string') return detail;
-    if (Array.isArray(detail) && detail.length > 0) {
-      const first = detail[0] as Record<string, unknown>;
-      return String(first?.msg ?? fallback);
+    // 1. If we received a response from the server with an error status code
+    if (err.response) {
+      const status = err.response.status;
+      
+      // Map server status codes to safe generic descriptions in production
+      if (status >= 500) {
+        return 'Something went wrong while processing your request. Please try again.';
+      }
+      
+      const body = err.response.data as Record<string, unknown> | undefined;
+      const errorObj = body?.error as Record<string, unknown> | undefined;
+      
+      // If backend returned a provider error, return a nice provider-specific message
+      if (errorObj?.code === 'provider_error') {
+        return 'The AI service is temporarily unavailable. Please try again shortly.';
+      }
+      
+      const detail = errorObj?.message ?? errorObj?.code ?? body?.detail ?? body?.message ?? body?.error;
+      if (typeof detail === 'string') return detail;
+      if (Array.isArray(detail) && detail.length > 0) {
+        const first = detail[0] as Record<string, unknown>;
+        return String(first?.msg ?? fallback);
+      }
+      
+      if (status === 404) return 'The requested resource was not found. Please try again.';
+      if (status === 403) return 'You do not have permission to perform this action.';
+      if (status === 401) return 'Your session has expired. Please sign in again.';
+      if (status === 400) return 'The request was invalid. Please try again.';
+      
+      return fallback;
+    }
+    
+    // 2. If the request was made but no response was received (e.g. network failure, timeout)
+    if (err.request) {
+      if (err.code === 'ECONNABORTED' || err.message.toLowerCase().includes('timeout')) {
+        return 'Unable to connect right now. The request timed out. Please check your internet connection and try again.';
+      }
+      // Return safe, user-friendly offline message instead of leaking base URLs or host IPs
+      return 'Unable to connect right now. Please check your internet connection and try again.';
     }
   }
-  if (err instanceof Error) return err.message;
+  
+  // 3. For generic JS errors, do not leak raw programming exceptions/stack traces to end-users
   return fallback;
 }
 
@@ -152,9 +250,13 @@ export const documentsApi = {
   get: (id: string): Promise<DocumentDetail> =>
     client.get(`/documents/${id}`).then((r) => r.data),
 
-  upload: (fileUri: string, filename: string, mimeType: string): Promise<UploadResponse> => {
+  upload: (fileUri: string | File, filename: string, mimeType: string): Promise<UploadResponse> => {
     const form = new FormData();
-    form.append('file', { uri: fileUri, name: filename, type: mimeType } as unknown as Blob);
+    if (Platform.OS === 'web' && fileUri instanceof File) {
+      form.append('file', fileUri);
+    } else {
+      form.append('file', { uri: fileUri as string, name: filename, type: mimeType } as unknown as Blob);
+    }
     return client
       .post('/documents', form, { headers: { 'Content-Type': 'multipart/form-data' } })
       .then((r) => r.data);
@@ -198,6 +300,87 @@ export const masteryApi = {
   map: (topicId: string): Promise<MasteryMap> =>
     client.get(`/mastery/${topicId}`).then((r) => r.data),
 };
+
+// ─── Dashboard ───────────────────────────────────────────────────────────────
+
+export interface ContinueLearning {
+  lessonId: string | null;
+  title: string | null;
+  subject: string | null;
+  progress: number;
+  documentId: string | null;
+}
+
+export interface DashboardData {
+  recentDocuments: DocumentListItem[];
+  masterySummary: MasterySummaryItem[];
+  continueLearning: ContinueLearning | null;
+  documentCount: number;
+  topicCount: number;
+}
+
+export const dashboardApi = {
+  get: (): Promise<DashboardData> =>
+    client.get('/dashboard').then((r) => r.data),
+};
+
+// ─── Analytics ───────────────────────────────────────────────────────────────
+
+export interface DocumentStats {
+  total: number;
+  completed: number;
+  processing: number;
+  failed: number;
+  pending: number;
+  totalBytes: number;
+}
+
+export interface ConceptStats {
+  total: number;
+  mastered: number;
+  reviewing: number;
+  locked: number;
+}
+
+export interface TopicStats {
+  total: number;
+  averageMastery: number;
+}
+
+export interface UserActivity {
+  crucibleSessions: number;
+  totalTurns: number;
+  averageScore: number;
+}
+
+export interface AIUsage {
+  totalJobs: number;
+  sceneGeneration: number;
+  questionGeneration: number;
+  grading: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface ErrorsFailures {
+  processingErrors: number;
+  aiErrors: number;
+}
+
+export interface AnalyticsData {
+  documentStats: DocumentStats;
+  conceptStats: ConceptStats;
+  topicStats: TopicStats;
+  userActivity: UserActivity;
+  aiUsage: AIUsage;
+  errorsFailures: ErrorsFailures;
+}
+
+export const analyticsApi = {
+  get: (): Promise<AnalyticsData> =>
+    client.get('/analytics').then((r) => r.data),
+};
+
 
 // ─── Learning (Topics & Lessons) ─────────────────────────────────────────────
 
@@ -254,22 +437,40 @@ export interface LessonGenerateResponse {
 export const learningApi = {
   listTopics: (page = 1, pageSize = 50, documentId?: string): Promise<PaginatedResponse<Topic>> =>
     client
-      .get('/learning/topics', { params: { page, page_size: pageSize, document_id: documentId } })
+      .get('/topics', { params: { page, page_size: pageSize, document_id: documentId } })
       .then((r) => r.data),
 
   getTopic: (id: string): Promise<Topic> =>
-    client.get(`/learning/topics/${id}`).then((r) => r.data),
+    client.get(`/topics/${id}`).then((r) => r.data),
 
-  listLessons: (page = 1, pageSize = 20): Promise<PaginatedResponse<LessonListItem>> =>
-    client.get('/learning/lessons', { params: { page, page_size: pageSize } }).then((r) => r.data),
+  listLessons: (page = 1, pageSize = 20, documentId?: string): Promise<PaginatedResponse<LessonListItem>> =>
+    client.get('/lessons', { params: { page, page_size: pageSize, document_id: documentId } }).then((r) => r.data),
 
   getLesson: (id: string): Promise<Lesson> =>
-    client.get(`/learning/lessons/${id}`).then((r) => r.data),
+    client.get(`/lessons/${id}`).then((r) => r.data),
 
   generateLesson: (documentId: string, sceneCount = 5, focus = ''): Promise<LessonGenerateResponse> =>
     client
-      .post('/learning/lessons/generate', { documentId, sceneCount, focus })
+      .post('/lessons', { documentId, sceneCount, focus })
       .then((r) => r.data),
+};
+
+// ─── Profile ─────────────────────────────────────────────────────────────────
+
+export interface UserProfile {
+  id: string;
+  name: string | null;
+  email: string | null;
+  subscription: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export const profileApi = {
+  get: (): Promise<UserProfile> =>
+    client.get('/profile').then((r) => r.data),
+  update: (name: string): Promise<UserProfile> =>
+    client.patch('/profile', { name }).then((r) => r.data),
 };
 
 // ─── Explore ─────────────────────────────────────────────────────────────────
@@ -388,4 +589,47 @@ export const crucibleApi = {
     client.get(`/crucible/sessions/${sessionId}`).then((r) => r.data),
 };
 
+export interface MediaAsset {
+  id: string;
+  url: string;
+  publicId: string;
+  kind: 'image' | 'video';
+  resourceType: string;
+  format: string | null;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+  bytes: number | null;
+  lessonId: string | null;
+  prompt: string | null;
+}
+
+export interface MediaGenerateResponse {
+  job: { job_id: string; status: string; kind: string };
+}
+
+export interface JobStatusResponse {
+  job_id: string;
+  kind: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  progress_pct: number;
+  error_message: string | null;
+  result: any;
+}
+
+export const mediaApi = {
+  list: (lessonId?: string, page = 1, pageSize = 50): Promise<PaginatedResponse<MediaAsset>> =>
+    client.get('/media', { params: { lessonId, page, page_size: pageSize } }).then((r) => r.data),
+
+  generateImage: (prompt: string, lessonId?: string): Promise<MediaGenerateResponse> =>
+    client.post('/media/images', { prompt, lessonId }).then((r) => r.data),
+
+  generateVideo: (prompt: string, aspectRatio = '16:9', lessonId?: string): Promise<MediaGenerateResponse> =>
+    client.post('/media/videos', { prompt, aspectRatio, lessonId }).then((r) => r.data),
+
+  getJobStatus: (jobId: string): Promise<JobStatusResponse> =>
+    client.get(`/jobs/${jobId}`).then((r) => r.data),
+};
+
 export default client;
+

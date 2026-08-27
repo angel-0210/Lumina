@@ -45,7 +45,7 @@ from app.core.database import connection_scope
 from app.core.exceptions import AppError, ProviderError
 from app.core.logging import get_logger
 from app.integrations import cloudinary_client
-from app.jobs.manager import JobContext
+from app.jobs.manager import JobContext, job_manager
 from app.repositories import (
     ai_job_repo,
     chunk_repo,
@@ -53,6 +53,7 @@ from app.repositories import (
     job_repo,
     learning_repo,
     media_repo,
+    topic_repo,
 )
 
 logger = get_logger(__name__)
@@ -110,15 +111,56 @@ def ingest_document_job(
         _fail_ingestion(db_job_id, document_id, "Document processing failed. Please try again.")
         raise
 
-    # Persist + finalize in one short transaction.
     try:
         with connection_scope() as conn:
             persist_chunks(conn, document_id=document_id, rows=prepared.rows)
             chunk_count = chunk_repo.count_for_document(conn, document_id)
+            
+            # Step 5: Extract Topics and Sub-Concepts from the document
+            ctx.progress(85, "Detecting topics and conceptual nodes")
+            extracted_topics = ai_service.extract_topics_and_concepts(
+                conn, user_id=ctx.user_id, document_id=document_id
+            )
+
             job_repo.update_progress(conn, db_job_id, status="completed", progress_pct=100)
             document_repo.update_status(
                 conn, document_id, status="completed", chunk_count=chunk_count
             )
+
+            # Persist topics, concepts and create learning sessions
+            jobs_to_submit = []
+            for t_idx, topic_data in enumerate(extracted_topics.topics):
+                topic_row = topic_repo.create_topic(
+                    conn,
+                    document_id=document_id,
+                    user_id=ctx.user_id,
+                    title=topic_data.title,
+                    description=topic_data.description,
+                    order_index=t_idx,
+                )
+                for c_idx, concept_data in enumerate(topic_data.concepts):
+                    topic_repo.create_concept(
+                        conn,
+                        topic_id=topic_row["id"],
+                        document_id=document_id,
+                        user_id=ctx.user_id,
+                        name=concept_data.name,
+                        description=concept_data.description,
+                        order_index=c_idx,
+                    )
+                # Create corresponding learning session for this topic
+                session = learning_repo.create_session(
+                    conn,
+                    user_id=ctx.user_id,
+                    document_id=document_id,
+                    title=topic_data.title,
+                    status="active",
+                )
+                ai_job = ai_job_repo.create(
+                    conn, learning_session_id=session["id"], job_type="scene_generation", status="pending"
+                )
+                jobs_to_submit.append((session["id"], ai_job["id"], topic_data.title))
+
     except AppError as exc:
         _fail_ingestion(db_job_id, document_id, exc.message)
         raise
@@ -126,20 +168,35 @@ def ingest_document_job(
         _fail_ingestion(db_job_id, document_id, "Failed to store the processed document.")
         raise
 
+    for session_id, ai_job_id, topic_title in jobs_to_submit:
+        job_manager.submit(
+            "scene_generation",
+            generate_scenes_job,
+            user_id=ctx.user_id,
+            entity_id=session_id,
+            session_id=session_id,
+            document_id=document_id,
+            focus=topic_title,
+            scene_count=5,
+            ai_job_id=ai_job_id,
+        )
+
     ctx.set_result(
         {
             "document_id": document_id,
             "chunk_count": chunk_count,
             "embedded_count": prepared.result.embedded_count,
             "page_count": prepared.result.page_count,
+            "topic_count": len(jobs_to_submit),
         }
     )
     ctx.progress(100, "Document ready")
     logger.info(
-        "ingested document %s: %d chunks (%d embedded)",
+        "ingested document %s: %d chunks (%d embedded), %d topics generated",
         document_id,
         prepared.result.chunk_count,
         prepared.result.embedded_count,
+        len(jobs_to_submit),
     )
 
 
@@ -195,6 +252,7 @@ def generate_scenes_job(
             learning_repo.replace_scenes(conn, session_id, scene_rows)
             if result.title:
                 learning_repo.set_title(conn, session_id, result.title)
+            learning_repo.update_status(conn, session_id, status="completed")
             ai_job_repo.update_status(
                 conn,
                 ai_job_id,

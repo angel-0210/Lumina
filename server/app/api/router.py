@@ -12,6 +12,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api.routes import (
+    analytics,
     auth,
     crucible,
     dashboard,
@@ -36,6 +37,7 @@ api_router.include_router(explore.router)
 api_router.include_router(crucible.router)
 api_router.include_router(mastery.router)
 api_router.include_router(dashboard.router)
+api_router.include_router(analytics.router)
 api_router.include_router(media.router)
 api_router.include_router(jobs.router)
 api_router.include_router(realtime.router)

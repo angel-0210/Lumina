@@ -9,28 +9,50 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { learningApi, Topic, apiErrorMessage } from '../../services/api';
+import { useAppStore } from '../../store';
+import { learningApi, documentsApi, Topic, DocumentListItem, apiErrorMessage } from '../../services/api';
 
 const FILTERS = ['All', 'In Progress', 'Completed', 'Not Started'];
 
-// Group topics by their document.
-function groupByDocument(topics: Topic[]): { documentId: string; documentTitle: string; topics: Topic[] }[] {
-  const map = new Map<string, { documentId: string; documentTitle: string; topics: Topic[] }>();
+interface DocumentGroup {
+  documentId: string;
+  documentTitle: string;
+  status: string;
+  progress: number;
+  topics: Topic[];
+}
+
+function buildDocumentGroups(documents: DocumentListItem[], topics: Topic[]): DocumentGroup[] {
+  const groupsMap = new Map<string, DocumentGroup>();
+  for (const doc of documents) {
+    groupsMap.set(doc.id, {
+      documentId: doc.id,
+      documentTitle: doc.title,
+      status: doc.status,
+      progress: doc.progress,
+      topics: [],
+    });
+  }
   for (const topic of topics) {
-    if (!map.has(topic.documentId)) {
-      map.set(topic.documentId, {
+    const group = groupsMap.get(topic.documentId);
+    if (group) {
+      group.topics.push(topic);
+    } else {
+      groupsMap.set(topic.documentId, {
         documentId: topic.documentId,
         documentTitle: topic.documentTitle || topic.subject || 'Unknown document',
-        topics: [],
+        status: 'completed',
+        progress: 1.0,
+        topics: [topic],
       });
     }
-    map.get(topic.documentId)!.topics.push(topic);
   }
-  return Array.from(map.values());
+  return Array.from(groupsMap.values());
 }
 
 function filterTopic(topic: Topic, filter: string): boolean {
@@ -41,17 +63,44 @@ function filterTopic(topic: Topic, filter: string): boolean {
   return true;
 }
 
+import WebLearning from '../../web/pages/Learning';
+
 export default function LearnHub() {
+  const accessToken = useAppStore((state) => state.accessToken);
+  const sessionRestored = useAppStore((state) => state.sessionRestored);
+
+  if (sessionRestored && !accessToken) {
+    return <Redirect href="/signup" />;
+  }
+
+  if (!sessionRestored) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#131313', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#dfb7ff" />
+      </View>
+    );
+  }
+
+  if (Platform.OS === 'web') {
+    return <WebLearning />;
+  }
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [topics, setTopics] = useState<Topic[]>([]);
+  const [documents, setDocuments] = useState<DocumentListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [generatingDocId, setGeneratingDocId] = useState<string | null>(null);
 
-  const fetchTopics = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
-      const res = await learningApi.listTopics(1, 100);
-      setTopics(res.items);
+      const [topicsRes, docsRes] = await Promise.all([
+        learningApi.listTopics(1, 100),
+        documentsApi.list(1, 100),
+      ]);
+      setTopics(topicsRes.items);
+      setDocuments(docsRes.items);
     } catch {
       // Non-fatal; show empty state.
     } finally {
@@ -60,19 +109,63 @@ export default function LearnHub() {
     }
   }, []);
 
-  useEffect(() => { fetchTopics(); }, [fetchTopics]);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Polling for processing documents or generating topics
+  useEffect(() => {
+    const isProcessing = 
+      documents.some(d => d.status === 'pending' || d.status === 'processing') ||
+      topics.some(t => t.status === 'active' && t.totalScenes === 0);
+
+    if (isProcessing) {
+      const interval = setInterval(() => {
+        fetchData();
+      }, 4000);
+      return () => clearInterval(interval);
+    }
+  }, [documents, topics, fetchData]);
 
   const handleRefresh = () => {
     setRefreshing(true);
-    fetchTopics();
+    fetchData();
   };
 
-  const filteredGroups = groupByDocument(
-    topics.filter((t) => {
-      const matchesSearch = t.name.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesSearch && filterTopic(t, selectedFilter);
-    })
-  );
+  const handleGenerateLesson = async (docId: string) => {
+    setGeneratingDocId(docId);
+    try {
+      await learningApi.generateLesson(docId);
+      Alert.alert(
+        'Lesson Generation Initiated',
+        'Lumina AI is generating study units and tutorial scenes for this document. You can monitor progress directly here.',
+      );
+      fetchData();
+    } catch (err) {
+      Alert.alert('Generation Failed', apiErrorMessage(err, 'Failed to generate study units.'));
+    } finally {
+      setGeneratingDocId(null);
+    }
+  };
+
+  const allGroups = buildDocumentGroups(documents, topics);
+
+  const filteredGroups = allGroups.filter((g) => {
+    const docMatches = g.documentTitle.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    g.topics = g.topics.filter((t) => {
+      const topicMatches = t.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const filterMatches = filterTopic(t, selectedFilter);
+      return topicMatches && filterMatches;
+    });
+
+    const isWorkingState = g.status === 'processing' || g.status === 'pending' || g.status === 'failed';
+    if (isWorkingState) {
+      return searchQuery === '' || docMatches;
+    }
+
+    return docMatches || g.topics.length > 0;
+  });
 
   // In-progress lessons (totalScenes > 0 and mastery > 0 and < 1)
   const continuingTopics = topics.filter(
@@ -115,7 +208,7 @@ export default function LearnHub() {
             <ActivityIndicator color="#991bf7" />
             <Text style={styles.loadingText}>Loading topics…</Text>
           </View>
-        ) : topics.length === 0 ? (
+        ) : documents.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="book-outline" size={48} color="#353b50" />
             <Text style={styles.emptyText}>No topics yet.</Text>
@@ -189,46 +282,107 @@ export default function LearnHub() {
                   <Text style={styles.emptyText}>No topics matching filters found.</Text>
                 </View>
               ) : (
-                filteredGroups.map((group) => (
-                  <View key={group.documentId} style={styles.groupContainer}>
-                    <View style={styles.groupHeader}>
-                      <Ionicons name="document-text-outline" size={16} color="#6e748a" />
-                      <Text style={styles.groupTitle}>{group.documentTitle}</Text>
-                    </View>
+                filteredGroups.map((group) => {
+                  const isProcessing = group.status === 'pending' || group.status === 'processing';
+                  const isFailed = group.status === 'failed';
+                  
+                  return (
+                    <View key={group.documentId} style={styles.groupContainer}>
+                      <View style={styles.groupHeader}>
+                        <Ionicons name="document-text-outline" size={16} color="#6e748a" />
+                        <Text style={styles.groupTitle}>{group.documentTitle}</Text>
+                      </View>
 
-                    <View style={styles.topicsList}>
-                      {group.topics.map((topic) => (
-                        <TouchableOpacity
-                          key={topic.id}
-                          style={styles.topicCard}
-                          onPress={() => router.push(`/mastery/${topic.id}`)}
-                          activeOpacity={0.8}
-                        >
-                          <View style={styles.topicMain}>
-                            <View style={styles.topicTexts}>
-                              <Text style={styles.topicName}>{topic.name}</Text>
-                              <Text style={styles.topicLessons}>
-                                {topic.totalScenes > 0
-                                  ? `${topic.totalScenes} Scenes`
-                                  : topic.status === 'active' ? 'Generating…' : 'Not started'}
-                              </Text>
+                      <View style={styles.topicsList}>
+                        {isProcessing && (
+                          <View style={styles.statusCard}>
+                            <View style={styles.statusRow}>
+                              <ActivityIndicator size="small" color="#dfb7ff" />
+                              <Text style={styles.statusText}>Processing document… Just a moment.</Text>
                             </View>
-                            <View style={styles.topicMasteryContainer}>
-                              <View style={styles.masteryIndicator}>
-                                <Text style={styles.masteryPercent}>{Math.round(topic.mastery * 100)}%</Text>
-                                <Text style={styles.masteryLabel}>Mastery</Text>
+                            <View style={styles.statusProgressBg}>
+                              <View style={[styles.statusProgressFill, { width: `${group.progress * 100}%` }]} />
+                            </View>
+                          </View>
+                        )}
+
+                        {isFailed && (
+                          <View style={[styles.statusCard, styles.failedCard]}>
+                            <View style={styles.statusRow}>
+                              <Ionicons name="alert-circle-outline" size={18} color="#ffb4ab" />
+                              <Text style={[styles.statusText, styles.failedText]}>Processing failed. Please delete and re-upload.</Text>
+                            </View>
+                            <TouchableOpacity
+                              style={styles.retryButton}
+                              onPress={async () => {
+                                try {
+                                  await documentsApi.delete(group.documentId);
+                                  fetchData();
+                                } catch (err) {
+                                  Alert.alert('Error', 'Failed to remove document.');
+                                }
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.retryButtonText}>Delete</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+
+                        {group.status === 'completed' && group.topics.length === 0 && (
+                          <View style={styles.statusCard}>
+                            <Text style={styles.readyText}>Document indexed. Ready to generate learning topics.</Text>
+                            <TouchableOpacity
+                              style={styles.generateButton}
+                              onPress={() => handleGenerateLesson(group.documentId)}
+                              disabled={generatingDocId !== null}
+                              activeOpacity={0.8}
+                            >
+                              {generatingDocId === group.documentId ? (
+                                <ActivityIndicator size="small" color="#ffffff" />
+                              ) : (
+                                <>
+                                  <Ionicons name="color-wand-outline" size={16} color="#ffffff" />
+                                  <Text style={styles.generateButtonText}>Generate Study Topics</Text>
+                                </>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        )}
+
+                        {group.topics.map((topic) => (
+                          <TouchableOpacity
+                            key={topic.id}
+                            style={styles.topicCard}
+                            onPress={() => router.push(`/mastery/${topic.id}`)}
+                            activeOpacity={0.8}
+                          >
+                            <View style={styles.topicMain}>
+                              <View style={styles.topicTexts}>
+                                <Text style={styles.topicName}>{topic.name}</Text>
+                                <Text style={styles.topicLessons}>
+                                  {topic.totalScenes > 0
+                                    ? `${topic.totalScenes} Scenes`
+                                    : topic.status === 'active' ? 'Generating…' : 'Not started'}
+                                </Text>
                               </View>
-                              <Ionicons name="chevron-forward" size={18} color="#6e748a" />
+                              <View style={styles.topicMasteryContainer}>
+                                <View style={styles.masteryIndicator}>
+                                  <Text style={styles.masteryPercent}>{Math.round(topic.mastery * 100)}%</Text>
+                                  <Text style={styles.masteryLabel}>Mastery</Text>
+                                </View>
+                                <Ionicons name="chevron-forward" size={18} color="#6e748a" />
+                              </View>
                             </View>
-                          </View>
-                          <View style={styles.topicProgressBg}>
-                            <View style={[styles.topicProgressFill, { width: `${topic.mastery * 100}%` }]} />
-                          </View>
-                        </TouchableOpacity>
-                      ))}
+                            <View style={styles.topicProgressBg}>
+                              <View style={[styles.topicProgressFill, { width: `${topic.mastery * 100}%` }]} />
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
                     </View>
-                  </View>
-                ))
+                  );
+                })
               )}
             </View>
           </>
@@ -314,4 +468,74 @@ const styles = StyleSheet.create({
   masteryLabel: { fontSize: 9, color: '#6e748a', marginTop: 1 },
   topicProgressBg: { height: 3, backgroundColor: '#1b1d26', width: '100%' },
   topicProgressFill: { height: '100%', backgroundColor: '#991bf7' },
+  statusCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    borderWidth: 1,
+    borderColor: 'rgba(154, 140, 160, 0.08)',
+    borderRadius: 16,
+    padding: 16,
+    gap: 12,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  statusText: {
+    color: '#b8bdd4',
+    fontSize: 13,
+  },
+  statusProgressBg: {
+    height: 4,
+    backgroundColor: '#1b1d26',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  statusProgressFill: {
+    height: '100%',
+    backgroundColor: '#dfb7ff',
+  },
+  failedCard: {
+    borderColor: 'rgba(255, 100, 80, 0.15)',
+    backgroundColor: 'rgba(255, 100, 80, 0.02)',
+  },
+  failedText: {
+    color: '#ffb4ab',
+  },
+  retryButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255, 180, 171, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 180, 171, 0.25)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  retryButtonText: {
+    color: '#ffb4ab',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  readyText: {
+    color: '#a0a5c0',
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 4,
+  },
+  generateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#991bf7',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignSelf: 'flex-start',
+  },
+  generateButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
 });

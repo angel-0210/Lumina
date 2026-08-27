@@ -15,6 +15,7 @@ Storage layout (Cloudinary):
 from __future__ import annotations
 
 from typing import Any, Optional
+from urllib.parse import unquote
 
 from sqlalchemy.engine import Connection
 
@@ -30,7 +31,7 @@ from app.core.security import AuthPrincipal
 from app.integrations import cloudinary_client
 from app.jobs import workers
 from app.jobs.manager import job_manager
-from app.repositories import document_repo, job_repo, learning_repo
+from app.repositories import document_repo, job_repo, learning_repo, topic_repo
 from app.schemas.document import (
     DocumentDetail,
     DocumentListItem,
@@ -82,11 +83,14 @@ def get_document(conn: Connection, principal: AuthPrincipal, document_id: str) -
     sessions = learning_repo.list_sessions(
         conn, principal.id, limit=100, offset=0, document_id=document_id
     )
+    doc_topics = topic_repo.list_topics_for_document(conn, document_id, principal.id)
+    topic_desc_map = {t["title"]: t.get("description") for t in doc_topics}
+
     topics_list = [
         DocumentTopicRef(
             id=s["id"],
             name=s.get("title") or s.get("document_title") or "Study unit",
-            desc="",
+            desc=topic_desc_map.get(s.get("title") or "") or "",
         )
         for s in sessions
     ]
@@ -233,7 +237,9 @@ def _guess_mime_from_name(filename: Optional[str]) -> Optional[str]:
 def _title_from_filename(filename: Optional[str]) -> str:
     if not filename:
         return "Untitled document"
-    name = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    # URL-decode encoded characters (e.g. %20 -> space) from file pickers.
+    name = unquote(filename)
+    name = name.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
     if "." in name:
         name = name.rsplit(".", 1)[0]
     name = name.replace("_", " ").replace("-", " ").strip()

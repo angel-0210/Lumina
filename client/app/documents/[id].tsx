@@ -10,12 +10,17 @@ import {
   Platform 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../../components/Button';
 import { documentsApi, learningApi, apiErrorMessage, DocumentDetail } from '../../services/api';
+import WebDocumentDetail from '../../web/pages/Documents/DocumentDetail';
 
 export default function DocumentDetailScreen() {
+  if (Platform.OS === 'web') {
+    return <WebDocumentDetail />;
+  }
+
   const { id } = useLocalSearchParams<{ id: string }>();
   const [doc, setDoc] = useState<DocumentDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -102,6 +107,7 @@ export default function DocumentDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <Stack.Screen options={{ title: 'Document Details', headerShown: false }} />
       {/* Header bar */}
       <View style={styles.header}>
         <TouchableOpacity 
@@ -187,7 +193,7 @@ export default function DocumentDetailScreen() {
                   
                   <TouchableOpacity 
                     style={styles.actionPill} 
-                    onPress={() => router.push('/test')}
+                    onPress={() => router.push({ pathname: '/test', params: { topicId: topic.id } })}
                     activeOpacity={0.7}
                   >
                     <Ionicons name="flame" size={12} color="#dfb7ff" />
@@ -213,7 +219,7 @@ export default function DocumentDetailScreen() {
 
           <Button
             title="Explore File via Q&A"
-            onPress={() => router.push('/explore')}
+            onPress={() => router.push({ pathname: '/explore', params: { docId: doc.id } })}
             showArrow
           />
           

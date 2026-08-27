@@ -149,48 +149,74 @@ def embed_query(query: str, *, dim: Optional[int] = None) -> list[float]:
 class ImageResult:
     image_bytes: bytes
     mime_type: str = "image/png"
-
-
 def generate_image(
     prompt: str,
     *,
     aspect_ratio: str = "1:1",
     model: Optional[str] = None,
 ) -> ImageResult:
-    """Generate a single image via the Imagen ``:predict`` endpoint.
+    """Generate an image using Gemini's multimodal `generateContent` endpoint.
 
-    Returns raw image bytes so the caller (the media worker) can push them to
-    Cloudinary. The API key travels in the ``x-goog-api-key`` header.
+    The Gemini image model (default from settings) returns the image as inlineBase64 data.
+    The function decodes the data and returns an ``ImageResult`` containing the raw bytes
+    and MIME type.
     """
     api_key = _require_key()
     model = model or settings.gemini_image_model
-    url = f"{_BASE_URL}/models/{model}:predict"
+    # Validate prompt
+    if not prompt or not prompt.strip():
+        raise ProviderError("Image generation requires a non‑empty prompt.")
+    # Use the generateContent endpoint for image generation.
+    url = f"{_BASE_URL}/models/{model}:generateContent"
     body = {
-        "instances": [{"prompt": prompt}],
-        "parameters": {"sampleCount": 1, "aspectRatio": aspect_ratio},
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "responseModalities": ["IMAGE"],
+            "imageConfig": {"aspectRatio": aspect_ratio},
+        },
     }
 
     try:
         with httpx.Client(timeout=_IMAGE_TIMEOUT) as client:
             resp = client.post(url, headers=_headers(api_key), json=body)
     except httpx.HTTPError as exc:
-        logger.warning("imagen generate transport error: %s", exc)
+        logger.warning("gemini image generate transport error: %s", exc)
         raise ServiceUnavailableError("Unable to reach the image service.") from exc
 
     if resp.status_code >= 400:
-        logger.warning("imagen generate returned %s", resp.status_code)
-        raise ProviderError("The image service returned an error.")
+        # Extract detailed error information if available
+        try:
+            err = resp.json().get("error", {})
+            code = err.get("code")
+            status = err.get("status")
+            message = err.get("message")
+            detail = f"code={code}, status={status}, message={message}" if any([code, status, message]) else resp.text
+        except Exception:
+            detail = resp.text
+        logger.warning(
+            "gemini image generate returned %s: %s", resp.status_code, detail
+        )
+        raise ProviderError(
+            f"Gemini image generation failed with HTTP status {resp.status_code}: {detail}"
+        )
 
     data = resp.json()
-    predictions = data.get("predictions") or []
-    if not predictions:
-        raise ProviderError("The image service returned no image.")
-    pred = predictions[0]
-    b64 = pred.get("bytesBase64Encoded") or pred.get("image")
+    candidates = data.get("candidates") or []
+    if not candidates:
+        raise ProviderError("Gemini image service returned no candidates.")
+    # Look for inlineData containing the image.
+    parts = (candidates[0].get("content") or {}).get("parts") or []
+    inline = next((p.get("inlineData") for p in parts if p.get("inlineData")), None)
+    if not inline:
+        raise ProviderError("Gemini image service returned no inline image data.")
+    b64 = inline.get("data")
+    mime_type = inline.get("mimeType") or "image/png"
     if not b64:
-        raise ProviderError("The image service returned no image data.")
+        raise ProviderError("Gemini image service returned empty image data.")
     try:
         raw = base64.b64decode(b64)
     except (ValueError, TypeError) as exc:
-        raise ProviderError("The image service returned malformed image data.") from exc
-    return ImageResult(image_bytes=raw, mime_type=pred.get("mimeType") or "image/png")
+        raise ProviderError("Gemini image service returned malformed image data.") from exc
+    return ImageResult(image_bytes=raw, mime_type=mime_type)
+
+

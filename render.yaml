@@ -1,0 +1,38 @@
+# Simple Python Native Deployment for Lumina Backend on Render
+services:
+  - type: web
+    name: lumina-backend
+    env: python
+    plan: free
+    
+    # Render automatically installs python runtime. We just install packages.
+    buildCommand: pip install -r server/requirements.txt
+    
+    # Run migrations and start uvicorn
+    startCommand: cd server && python run_migrations.py && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      
+      # Managed PostgreSQL connection string
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lumina-db
+          property: connectionString
+      
+      # Third-party configurations (fill in Render Dashboard UI)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+
+databases:
+  - name: lumina-db
+    plan: free

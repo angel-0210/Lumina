@@ -282,3 +282,34 @@ media_assets = Table(
     Column("prompt", Text),
     _created_at(),
 )
+
+# Added by migration 0005 to persist extracted document topics and sub-concepts.
+topics = Table(
+    "topics",
+    metadata,
+    _uuid_pk(),
+    Column("document_id", UUID(as_uuid=True), nullable=False),
+    Column("user_id", UUID(as_uuid=True), nullable=False),
+    Column("title", Text, nullable=False),
+    Column("description", Text),
+    Column("order_index", Integer, nullable=False, server_default=text("0")),
+    _created_at(),
+    _updated_at(),
+    Column("deleted_at", TIMESTAMP(timezone=True)),
+)
+
+concepts = Table(
+    "concepts",
+    metadata,
+    _uuid_pk(),
+    Column("topic_id", UUID(as_uuid=True), nullable=False),
+    Column("document_id", UUID(as_uuid=True), nullable=False),
+    Column("user_id", UUID(as_uuid=True), nullable=False),
+    Column("name", Text, nullable=False),
+    Column("description", Text),
+    Column("order_index", Integer, nullable=False, server_default=text("0")),
+    _created_at(),
+    _updated_at(),
+    Column("deleted_at", TIMESTAMP(timezone=True)),
+)
+

@@ -5,7 +5,8 @@ import {
   TouchableOpacity, 
   ActivityIndicator, 
   TouchableOpacityProps, 
-  View 
+  View,
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -62,10 +63,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
-    shadowColor: '#991bf7',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
+    ...Platform.select({
+      web: {
+        boxShadow: '0px 4px 10px rgba(153, 27, 247, 0.3)',
+      },
+      default: {
+        shadowColor: '#991bf7',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+      },
+    }),
     elevation: 4,
     marginTop: 10,
   },

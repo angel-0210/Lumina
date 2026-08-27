@@ -110,6 +110,7 @@ class JobContext:
 
 class JobManager:
     def __init__(self, max_workers: int) -> None:
+        self._max_workers = max_workers
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="lumina-job"
         )
@@ -220,6 +221,9 @@ class JobManager:
         with self._lock:
             self._gc_locked()
             self._jobs[job_id] = record
+            if getattr(self._executor, "_shutdown", False):
+                from concurrent.futures import ThreadPoolExecutor
+                self._executor = ThreadPoolExecutor(max_workers=self._max_workers)
 
         # Capture logging context so worker logs correlate with the request.
         req_id = request_id_ctx.get()

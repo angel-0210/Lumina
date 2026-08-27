@@ -1,0 +1,172 @@
+name: Lumina CI/CD Pipeline
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # PR VALIDATION JOB
+  # ─────────────────────────────────────────────────────────────────────────
+  validate-pr:
+    name: Validate Pull Request
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # --- Backend setup & tests ---
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r server/requirements.txt
+          pip install pytest httpx
+
+      - name: Run Backend Tests (pytest)
+        env:
+          APP_ENV: test
+          DATABASE_URL: sqlite:///:memory:
+          SUPABASE_JWT_SECRET: testsecret_must_be_long_enough_to_be_secure_32_bytes_or_more
+          GEMINI_API_KEY: mock_key
+          CLOUDINARY_CLOUD_NAME: mock_cloud
+          CLOUDINARY_API_KEY: mock_key
+          CLOUDINARY_API_SECRET: mock_secret
+          RATE_LIMIT_ENABLED: False
+        run: |
+          cd server
+          python -m pytest
+
+      # --- Frontend setup & checks ---
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Run TypeScript Type Check
+        run: npx tsc --noEmit
+
+      - name: Validate Web Bundle Build
+        run: npx expo export
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # MAIN BRANCH CHECKS & DEPLOYMENT JOB
+  # ─────────────────────────────────────────────────────────────────────────
+  main-checks:
+    name: Main Branch Verification & Build checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r server/requirements.txt
+          pip install pytest httpx
+
+      - name: Run Backend Tests
+        env:
+          APP_ENV: test
+          DATABASE_URL: sqlite:///:memory:
+          SUPABASE_JWT_SECRET: testsecret_must_be_long_enough_to_be_secure_32_bytes_or_more
+          GEMINI_API_KEY: mock_key
+          CLOUDINARY_CLOUD_NAME: mock_cloud
+          CLOUDINARY_API_KEY: mock_key
+          CLOUDINARY_API_SECRET: mock_secret
+          RATE_LIMIT_ENABLED: False
+        run: |
+          cd server
+          python -m pytest
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Build Web Assets (Production Bundle)
+        run: npx expo export
+
+      - name: Verify Docker Container Build
+        run: |
+          cd server
+          docker build -t lumina-api:test -f Dockerfile .
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # PRODUCTION EAS RELEASE JOB
+  # ─────────────────────────────────────────────────────────────────────────
+  release-eas:
+    name: Build & Publish Release (EAS Build)
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      # Setup Expo CLI and EAS CLI
+      - name: Set up Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # Triggers Android Release Build on EAS
+      # Note: requires credentials stored on EAS dashboard
+      - name: Build Android App Bundle (AAB) & APK
+        run: |
+          npx eas build --platform android --profile production --non-interactive --no-wait
+          npx eas build --platform android --profile preview --non-interactive --no-wait
+
+      # Creates GitHub Release and uploads static web builds
+      - name: Export Web Assets for Release
+        run: npx expo export
+
+      - name: Create Zip of Web Build
+        run: zip -r lumina-web.zip dist/
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            lumina-web.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

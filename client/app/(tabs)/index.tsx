@@ -15,6 +15,7 @@ import { Redirect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppStore } from '../../store';
 import { documentsApi, masteryApi, apiErrorMessage, DocumentListItem, MasterySummaryItem } from '../../services/api';
+import WebDashboard from '../../web/pages/Dashboard';
 
 const { width } = Dimensions.get('window');
 
@@ -27,21 +28,35 @@ function getGreeting(): string {
 
 export default function HomeDashboard() {
   const accessToken = useAppStore((state) => state.accessToken);
-  const user = useAppStore((state) => state.user);
   const sessionRestored = useAppStore((state) => state.sessionRestored);
   const clearAuth = useAppStore((state) => state.clearAuth);
-
-  const [documents, setDocuments] = useState<DocumentListItem[]>([]);
-  const [mastery, setMastery] = useState<MasterySummaryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const user = useAppStore((state) => state.user);
 
   // Wait for session restore before redirecting
   if (sessionRestored && !accessToken) {
     return <Redirect href="/signup" />;
   }
 
+  if (!sessionRestored) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#131313', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#dfb7ff" />
+      </View>
+    );
+  }
+
+  if (Platform.OS === 'web') {
+    return <WebDashboard />;
+  }
+
+  const [documents, setDocuments] = useState<DocumentListItem[]>([]);
+  const [mastery, setMastery] = useState<MasterySummaryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const fetchData = useCallback(async () => {
+    setError(null);
     try {
       const [docsRes, masteryRes] = await Promise.all([
         documentsApi.list(1, 5),
@@ -50,7 +65,7 @@ export default function HomeDashboard() {
       setDocuments(docsRes.items);
       setMastery(masteryRes);
     } catch {
-      // Errors on dashboard are non-fatal; show empty state.
+      setError('Unable to load your dashboard. Please try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -62,6 +77,11 @@ export default function HomeDashboard() {
       fetchData();
     }
   }, [accessToken, fetchData]);
+
+  // Wait for session restore before redirecting
+  if (sessionRestored && !accessToken) {
+    return <Redirect href="/signup" />;
+  }
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -155,99 +175,111 @@ export default function HomeDashboard() {
           <Ionicons name="chevron-forward-outline" size={20} color="#b8bdd4" />
         </TouchableOpacity>
 
-        {/* Recent Documents Section */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionHeaderTitle}>Recent Documents</Text>
-          <TouchableOpacity onPress={() => router.push('/learn')} activeOpacity={0.7}>
-            <Text style={styles.sectionHeaderLink}>View All</Text>
-          </TouchableOpacity>
-        </View>
-
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator color="#991bf7" />
-          </View>
-        ) : documents.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Ionicons name="document-outline" size={32} color="#353b50" />
-            <Text style={styles.emptyText}>No documents yet. Upload your first study material.</Text>
+        {error ? (
+          <View style={styles.errorCard}>
+            <Ionicons name="alert-circle-outline" size={32} color="#ffb4ab" />
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={handleRefresh} activeOpacity={0.7}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
           </View>
         ) : (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.carouselContainer}
-          >
-            {documents.map((doc) => (
-              <TouchableOpacity
-                key={doc.id}
-                style={styles.documentCard}
-                onPress={() => router.push(`/documents/${doc.id}`)}
-                activeOpacity={0.8}
-              >
-                <View style={styles.docHeader}>
-                  <Ionicons name="document-text-outline" size={24} color="#dfb7ff" />
-                  <Text style={styles.docDate}>{doc.date}</Text>
-                </View>
-                <Text style={styles.docTitle} numberOfLines={1}>{doc.title}</Text>
-                <Text style={styles.docInfo}>
-                  {doc.size} • {doc.topics} {doc.topics === 1 ? 'Topic' : 'Topics'}
-                </Text>
-
-                {/* Progress indicator */}
-                <View style={styles.progressContainer}>
-                  <View style={styles.progressBarBg}>
-                    <View style={[styles.progressBarFill, { width: `${doc.progress * 100}%` }]} />
-                  </View>
-                  <Text style={styles.progressText}>
-                    {doc.status === 'completed'
-                      ? `${Math.round(doc.progress * 100)}% Mastered`
-                      : doc.status === 'processing'
-                      ? 'Processing…'
-                      : doc.status === 'failed'
-                      ? 'Failed'
-                      : 'Pending'}
-                  </Text>
-                </View>
+          <>
+            {/* Recent Documents Section */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionHeaderTitle}>Recent Documents</Text>
+              <TouchableOpacity onPress={() => router.push('/learn')} activeOpacity={0.7}>
+                <Text style={styles.sectionHeaderLink}>View All</Text>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
-        )}
+            </View>
 
-        {/* Mastery Overview Section */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionHeaderTitle}>Mastery Overview</Text>
-        </View>
-
-        {mastery.length === 0 && !loading ? (
-          <View style={styles.emptyCard}>
-            <Ionicons name="analytics-outline" size={32} color="#353b50" />
-            <Text style={styles.emptyText}>
-              Complete a Crucible assessment to track mastery.
-            </Text>
-          </View>
-        ) : (
-          <View style={[styles.glassCard, styles.masteryCard]}>
-            {mastery.map((subject, index) => (
-              <View key={subject.subject} style={[styles.subjectRow, index > 0 && styles.subjectRowBorder]}>
-                <View style={styles.subjectHeader}>
-                  <Text style={styles.subjectName}>{subject.subject}</Text>
-                  <Text style={styles.subjectPercent}>{Math.round(subject.progress * 100)}%</Text>
-                </View>
-                <View style={styles.progressBarBg}>
-                  <View
-                    style={[
-                      styles.progressBarFill,
-                      {
-                        width: `${subject.progress * 100}%`,
-                        backgroundColor: subject.color
-                      }
-                    ]}
-                  />
-                </View>
+            {loading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator color="#991bf7" />
               </View>
-            ))}
-          </View>
+            ) : documents.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="document-outline" size={32} color="#353b50" />
+                <Text style={styles.emptyText}>No documents yet. Upload your first study material.</Text>
+              </View>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.carouselContainer}
+              >
+                {documents.map((doc) => (
+                  <TouchableOpacity
+                    key={doc.id}
+                    style={styles.documentCard}
+                    onPress={() => router.push(`/documents/${doc.id}`)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.docHeader}>
+                      <Ionicons name="document-text-outline" size={24} color="#dfb7ff" />
+                      <Text style={styles.docDate}>{doc.date}</Text>
+                    </View>
+                    <Text style={styles.docTitle} numberOfLines={1}>{doc.title}</Text>
+                    <Text style={styles.docInfo}>
+                      {doc.size} • {doc.topics} {doc.topics === 1 ? 'Topic' : 'Topics'}
+                    </Text>
+
+                    {/* Progress indicator */}
+                    <View style={styles.progressContainer}>
+                      <View style={styles.progressBarBg}>
+                        <View style={[styles.progressBarFill, { width: `${doc.progress * 100}%` }]} />
+                      </View>
+                      <Text style={styles.progressText}>
+                        {doc.status === 'completed'
+                          ? `${Math.round(doc.progress * 100)}% Mastered`
+                          : doc.status === 'processing'
+                          ? 'Processing…'
+                          : doc.status === 'failed'
+                          ? 'Failed'
+                          : 'Pending'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            {/* Mastery Overview Section */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionHeaderTitle}>Mastery Overview</Text>
+            </View>
+
+            {mastery.length === 0 && !loading ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="analytics-outline" size={32} color="#353b50" />
+                <Text style={styles.emptyText}>
+                  Complete a Crucible assessment to track mastery.
+                </Text>
+              </View>
+            ) : (
+              <View style={[styles.glassCard, styles.masteryCard]}>
+                {mastery.map((subject, index) => (
+                  <View key={subject.subject} style={[styles.subjectRow, index > 0 && styles.subjectRowBorder]}>
+                    <View style={styles.subjectHeader}>
+                      <Text style={styles.subjectName}>{subject.subject}</Text>
+                      <Text style={styles.subjectPercent}>{Math.round(subject.progress * 100)}%</Text>
+                    </View>
+                    <View style={styles.progressBarBg}>
+                      <View
+                        style={[
+                          styles.progressBarFill,
+                          {
+                            width: `${subject.progress * 100}%`,
+                            backgroundColor: subject.color
+                          }
+                        ]}
+                      />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -503,5 +535,36 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#b8bdd4',
+  },
+  errorCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 180, 171, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 180, 171, 0.2)',
+    borderRadius: 16,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    marginBottom: 20,
+    gap: 12,
+  },
+  errorText: {
+    fontSize: 13,
+    color: '#ffb4ab',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  retryButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  retryButtonText: {
+    color: '#f0f2f8',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

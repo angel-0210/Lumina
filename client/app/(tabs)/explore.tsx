@@ -11,9 +11,12 @@ import {
   ActivityIndicator,
   Modal,
   ScrollView,
+  Keyboard,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLocalSearchParams, Stack, Redirect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useAppStore } from '../../store';
 import { exploreApi, documentsApi, apiErrorMessage, ChatMessage, DocumentListItem } from '../../services/api';
 
 interface LocalMessage {
@@ -26,7 +29,48 @@ interface LocalMessage {
 
 const LOADING_ID = '__loading__';
 
+import WebDashboard from '../../web/pages/Dashboard';
+
 export default function ExploreScreen() {
+  const accessToken = useAppStore((state) => state.accessToken);
+  const sessionRestored = useAppStore((state) => state.sessionRestored);
+
+  if (sessionRestored && !accessToken) {
+    return <Redirect href="/signup" />;
+  }
+
+  if (!sessionRestored) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#131313', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#dfb7ff" />
+      </View>
+    );
+  }
+
+  if (Platform.OS === 'web') {
+    return <WebDashboard />;
+  }
+
+  const { docId } = useLocalSearchParams<{ docId?: string }>();
+  const insets = useSafeAreaInsets();
+  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setKeyboardVisible(true)
+    );
+    const hideSubscription = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardVisible(false)
+    );
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
@@ -46,6 +90,20 @@ export default function ExploreScreen() {
       setDocuments(completed);
     }).catch(() => {});
   }, []);
+
+  // Pre-select the document passed in route query parameters
+  useEffect(() => {
+    if (docId && documents.length > 0) {
+      const doc = documents.find((d) => d.id === docId);
+      if (doc) {
+        setSelectedDocId(docId);
+        setScopeLabel(doc.title);
+        // Start fresh conversation when scope is preset from navigation
+        setMessages([]);
+        setSessionId(undefined);
+      }
+    }
+  }, [docId, documents]);
 
   const handleSend = async () => {
     const query = inputText.trim();
@@ -148,8 +206,13 @@ export default function ExploreScreen() {
     );
   };
 
+  const bottomMargin = isKeyboardVisible
+    ? 0
+    : insets.bottom + (Platform.OS === 'ios' ? 8 : 12) + 64 + 10;
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <Stack.Screen options={{ title: 'Explore Chat', headerShown: false }} />
       {/* Header */}
       <View style={styles.header}>
         <View>
@@ -267,7 +330,7 @@ export default function ExploreScreen() {
         )}
 
         {/* Input Bar */}
-        <View style={styles.inputRow}>
+        <View style={[styles.inputRow, { marginBottom: bottomMargin }]}>
           <TextInput
             style={styles.textInput}
             placeholder="Ask a question about your documents…"

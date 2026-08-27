@@ -7,21 +7,51 @@ import {
   TouchableOpacity, 
   Switch,
   Alert,
-  Platform 
+  Platform,
+  ActivityIndicator,
+  TextInput
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppStore } from '../../store';
+import { Redirect } from 'expo-router';
+import { profileApi, apiErrorMessage } from '../../services/api';
+
+import WebSettings from '../../web/pages/Settings';
 
 export default function ProfileScreen() {
+  const accessToken = useAppStore((state) => state.accessToken);
+  const sessionRestored = useAppStore((state) => state.sessionRestored);
+
+  if (sessionRestored && !accessToken) {
+    return <Redirect href="/signup" />;
+  }
+
+  if (!sessionRestored) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#131313', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#dfb7ff" />
+      </View>
+    );
+  }
+
+  if (Platform.OS === 'web') {
+    return <WebSettings />;
+  }
+
   const resetAppState = useAppStore((state) => state.resetAppState);
-  
   const user = useAppStore((state) => state.user);
+  const refreshToken = useAppStore((state) => state.refreshToken);
+  const setAuth = useAppStore((state) => state.setAuth);
 
   // App preferences state
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(true);
   const [hapticFeedback, setHapticFeedback] = useState(true);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(user?.name || '');
+  const [saving, setSaving] = useState(false);
 
   const handleLogout = () => {
     Alert.alert(
@@ -39,7 +69,30 @@ export default function ProfileScreen() {
   };
 
   const handleEditProfile = () => {
-    Alert.alert('Edit Profile', 'Profile modifications are currently controlled by your workspace identity manager.');
+    setEditName(user?.name || '');
+    setIsEditing(true);
+  };
+
+  const handleSaveName = async () => {
+    if (!editName.trim()) {
+      Alert.alert('Error', 'Name cannot be empty.');
+      return;
+    }
+    try {
+      setSaving(false);
+      const updated = await profileApi.update(editName.trim());
+      if (accessToken && user) {
+        setAuth(accessToken, refreshToken, {
+          ...user,
+          name: updated.name,
+          email: updated.email,
+          subscription: updated.subscription
+        });
+      }
+      setIsEditing(false);
+    } catch (err) {
+      Alert.alert('Error', apiErrorMessage(err, 'We couldn\'t update your profile. Please try again.'));
+    }
   };
 
   const displayName = user?.name || user?.email?.split('@')[0] || 'Initiate';
@@ -56,17 +109,36 @@ export default function ProfileScreen() {
           <View style={styles.avatarWrapper}>
             <Ionicons name="person" size={48} color="#dfb7ff" />
           </View>
-          <Text style={styles.profileName}>{displayName}</Text>
+          {isEditing ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 8 }}>
+              <TextInput
+                style={[styles.profileName, { borderWidth: 1, borderColor: '#dfb7ff', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 2, minWidth: 150 }]}
+                value={editName}
+                onChangeText={setEditName}
+                autoFocus
+              />
+              <TouchableOpacity onPress={handleSaveName}>
+                <Ionicons name="checkmark-circle-outline" size={24} color="#408175" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setIsEditing(false)}>
+                <Ionicons name="close-circle-outline" size={24} color="#ffb4ab" />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text style={styles.profileName}>{displayName}</Text>
+          )}
           <Text style={styles.profileEmail}>{displayEmail}</Text>
           
-          <TouchableOpacity 
-            style={styles.editButton} 
-            onPress={handleEditProfile}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="create-outline" size={16} color="#dfb7ff" />
-            <Text style={styles.editButtonText}>Edit Profile</Text>
-          </TouchableOpacity>
+          {!isEditing && (
+            <TouchableOpacity 
+              style={styles.editButton} 
+              onPress={handleEditProfile}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="create-outline" size={16} color="#dfb7ff" />
+              <Text style={styles.editButtonText}>Edit Profile</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Settings Group: Preferences */}

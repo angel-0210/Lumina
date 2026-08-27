@@ -124,6 +124,7 @@ CREATE TABLE documents (
     user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     file_key TEXT NOT NULL,
+    file_public_id TEXT,
     file_type TEXT NOT NULL,
     file_size INTEGER NOT NULL CHECK (file_size > 0),
     chunk_count INTEGER DEFAULT 0 NOT NULL CHECK (chunk_count >= 0),
@@ -164,6 +165,7 @@ CREATE TABLE learning_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    title TEXT,
     status session_status DEFAULT 'active'::session_status NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
@@ -225,6 +227,7 @@ CREATE TABLE assessment_sessions (
     learning_session_id UUID NOT NULL REFERENCES learning_sessions(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     status assessment_status DEFAULT 'started'::assessment_status NOT NULL,
+    level level NOT NULL DEFAULT 'Curious'::level,
     started_at TIMESTAMPTZ DEFAULT now() NOT NULL,
     completed_at TIMESTAMPTZ,
     CONSTRAINT assessment_learning_session_unique UNIQUE (learning_session_id)
@@ -254,6 +257,52 @@ CREATE TABLE audit_logs (
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 
+-- Media Assets Table
+CREATE TABLE media_assets (
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id              UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    learning_session_id  UUID REFERENCES learning_sessions(id) ON DELETE SET NULL,
+    kind                 TEXT NOT NULL DEFAULT 'image',       -- 'image' | 'video'
+    provider             TEXT NOT NULL DEFAULT 'cloudinary',
+    resource_type        TEXT NOT NULL DEFAULT 'image',       -- cloudinary resource_type
+    public_id            TEXT NOT NULL,
+    url                  TEXT NOT NULL,
+    format               TEXT,
+    width                INTEGER,
+    height               INTEGER,
+    duration             DOUBLE PRECISION,
+    bytes                INTEGER,
+    prompt               TEXT,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Topics Table
+CREATE TABLE topics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    order_index INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ
+);
+
+-- Concepts Table
+CREATE TABLE concepts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    topic_id UUID NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    order_index INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ
+);
+
 
 -- 3. Create Indexes
 
@@ -271,6 +320,13 @@ CREATE INDEX IF NOT EXISTS idx_learning_sessions_doc_id ON learning_sessions(doc
 CREATE INDEX IF NOT EXISTS idx_learning_sessions_user_id_status ON learning_sessions(user_id, status);
 
 CREATE INDEX IF NOT EXISTS idx_tutorial_scenes_session_id_scene_index ON tutorial_scenes(learning_session_id, scene_index);
+
+CREATE INDEX IF NOT EXISTS idx_media_assets_user_id ON media_assets (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_media_assets_session_id ON media_assets (learning_session_id);
+CREATE INDEX IF NOT EXISTS idx_topics_document_id ON topics(document_id);
+CREATE INDEX IF NOT EXISTS idx_topics_user_id ON topics(user_id);
+CREATE INDEX IF NOT EXISTS idx_concepts_topic_id ON concepts(topic_id);
+CREATE INDEX IF NOT EXISTS idx_concepts_document_id ON concepts(document_id);
 
 CREATE INDEX IF NOT EXISTS idx_session_messages_session_id_phase_created_at ON session_messages(learning_session_id, phase, created_at);
 CREATE INDEX IF NOT EXISTS idx_session_messages_session_id_created_at ON session_messages(learning_session_id, created_at);
@@ -308,6 +364,9 @@ ALTER TABLE ai_generation_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE assessment_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE concept_scores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE media_assets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE topics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE concepts ENABLE ROW LEVEL SECURITY;
 
 -- Owner Policies
 CREATE POLICY "profiles_owner_policy" ON profiles FOR ALL USING (auth.uid() = id);
@@ -340,6 +399,9 @@ CREATE POLICY "concept_scores_owner_policy" ON concept_scores FOR ALL USING (
     EXISTS (SELECT 1 FROM assessment_sessions WHERE assessment_sessions.id = assessment_session_id AND assessment_sessions.user_id = auth.uid())
 );
 CREATE POLICY "audit_logs_owner_policy" ON audit_logs FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "media_assets_owner_policy" ON media_assets FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "topics_owner_policy" ON topics FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "concepts_owner_policy" ON concepts FOR ALL USING (auth.uid() = user_id);
 
 
 -- 5. Triggers and Functions
@@ -358,6 +420,8 @@ CREATE TRIGGER update_documents_updated_at BEFORE UPDATE ON documents FOR EACH R
 CREATE TRIGGER update_doc_processing_jobs_updated_at BEFORE UPDATE ON document_processing_jobs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_learning_sessions_updated_at BEFORE UPDATE ON learning_sessions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_ai_generation_jobs_updated_at BEFORE UPDATE ON ai_generation_jobs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_topics_updated_at BEFORE UPDATE ON topics FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_concepts_updated_at BEFORE UPDATE ON concepts FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- User Profile creation from auth.users (SECURITY DEFINER with secure search path)
 CREATE OR REPLACE FUNCTION public.handle_new_user()

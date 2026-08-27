@@ -16,8 +16,13 @@ import { useAppStore } from '../../store';
 import { authApi, apiErrorMessage } from '../../services/api';
 import Input from '../../components/Input';
 import Button from '../../components/Button';
+import WebLogin from '../../web/pages/Login';
 
 export default function LoginScreen() {
+  if (Platform.OS === 'web') {
+    return <WebLogin />;
+  }
+
   const setAuth = useAppStore((state) => state.setAuth);
 
   const [email, setEmail] = useState('');

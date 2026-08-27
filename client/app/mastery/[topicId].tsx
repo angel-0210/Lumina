@@ -11,7 +11,7 @@ import {
   Platform 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../../components/Button';
 import { masteryApi, apiErrorMessage, MasteryMap } from '../../services/api';
@@ -40,6 +40,7 @@ export default function MasteryMapScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <Stack.Screen options={{ title: 'Mastery Map', headerShown: false }} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#991bf7" />
           <Text style={styles.loadingText}>Fetching understanding map...</Text>
@@ -52,6 +53,7 @@ export default function MasteryMapScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <Stack.Screen options={{ title: 'Mastery Map', headerShown: false }} />
       {/* Header bar */}
       <View style={styles.header}>
         <TouchableOpacity 
@@ -163,7 +165,7 @@ export default function MasteryMapScreen() {
         <View style={styles.actionPanel}>
           <Button 
             title="Accelerate Topic Mastery" 
-            onPress={() => router.push('/learn')}
+            onPress={() => router.push(`/lesson/${topicId}`)}
             showArrow
           />
         </View>

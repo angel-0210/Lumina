@@ -11,8 +11,9 @@ import {
   Platform 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams, Redirect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useAppStore } from '../../store';
 import Button from '../../components/Button';
 import { learningApi, crucibleApi, apiErrorMessage, Topic, CrucibleSessionListItem } from '../../services/api';
 
@@ -22,7 +23,30 @@ const DIFFICULTY_LEVELS = [
   { level: 'Crucible', desc: 'Aggressive debate. Test your core assertions.' },
 ];
 
+import WebCrucible from '../../web/pages/Crucible';
+
 export default function TestHubScreen() {
+  const accessToken = useAppStore((state) => state.accessToken);
+  const sessionRestored = useAppStore((state) => state.sessionRestored);
+
+  if (sessionRestored && !accessToken) {
+    return <Redirect href="/signup" />;
+  }
+
+  if (!sessionRestored) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#131313', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#dfb7ff" />
+      </View>
+    );
+  }
+
+  if (Platform.OS === 'web') {
+    return <WebCrucible />;
+  }
+
+  const { topicId } = useLocalSearchParams<{ topicId?: string }>();
+
   const [topics, setTopics] = useState<Topic[]>([]);
   const [recentSessions, setRecentSessions] = useState<CrucibleSessionListItem[]>([]);
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
@@ -40,8 +64,14 @@ export default function TestHubScreen() {
       setTopics(topicsRes.items);
       setRecentSessions(sessionsRes.items);
 
-      if (topicsRes.items.length > 0 && !selectedTopicId) {
-        setSelectedTopicId(topicsRes.items[0].id);
+      if (topicsRes.items.length > 0) {
+        // Use functional setter so we don't need selectedTopicId in deps
+        setSelectedTopicId((prev) => {
+          if (topicId && topicsRes.items.some((t) => t.id === topicId)) {
+            return topicId;
+          }
+          return prev ?? topicsRes.items[0].id;
+        });
       }
     } catch {
       // Non-fatal.
@@ -49,11 +79,12 @@ export default function TestHubScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedTopicId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topicId]); // selectedTopicId intentionally omitted — use functional setter above
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const handleRefresh = () => {
     setRefreshing(true);

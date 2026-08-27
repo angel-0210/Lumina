@@ -105,15 +105,15 @@ class Settings(BaseModel):
 
     # -- Gemini (text generation + embeddings) ------------------------------
     gemini_api_key: Optional[str] = None
-    gemini_model: str = "gemini-1.5-flash"
+    gemini_model: str = "gemini-2.5-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
-    gemini_image_model: str = "imagen-3.0-generate-002"
+    gemini_image_model: str = "gemini-3.1-flash-image"
     embedding_dim: int = 1536
 
     # -- VEO (video generation) ---------------------------------------------
     veo_enabled: bool = False
     veo_api_key: Optional[str] = None  # falls back to gemini_api_key when unset
-    veo_model: str = "veo-3.0-generate-preview"
+    veo_model: str = "veo-3.1-generate-preview"
 
     # -- Cloudinary (generated media) ---------------------------------------
     cloudinary_cloud_name: Optional[str] = None
@@ -148,9 +148,9 @@ class Settings(BaseModel):
     rate_limit_enabled: bool = True
     rate_limit_default_per_min: int = 120
     # AI/expensive endpoints, keyed by subscription tier.
-    ai_rate_limit_free_per_min: int = 10
-    ai_rate_limit_pro_per_min: int = 60
-    ai_rate_limit_enterprise_per_min: int = 240
+    ai_rate_limit_free_per_min: int = 60
+    ai_rate_limit_pro_per_min: int = 120
+    ai_rate_limit_enterprise_per_min: int = 360
 
     # -- Background jobs (in-process thread pool) ---------------------------
     jobs_max_workers: int = 4
@@ -239,13 +239,13 @@ def _build_settings() -> Settings:
         supabase_jwt_aud=_get("SUPABASE_JWT_AUD", "authenticated"),
         supabase_storage_bucket=_get("SUPABASE_STORAGE_BUCKET", "lumina-documents"),
         gemini_api_key=_get("GEMINI_API_KEY"),
-        gemini_model=_get("GEMINI_MODEL", "gemini-1.5-flash"),
+        gemini_model=_get("GEMINI_MODEL", "gemini-2.5-flash"),
         gemini_embedding_model=_get("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"),
-        gemini_image_model=_get("GEMINI_IMAGE_MODEL", "imagen-3.0-generate-002"),
+        gemini_image_model=_get("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image"),
         embedding_dim=_get_int("EMBEDDING_DIM", 1536),
         veo_enabled=_get_bool("VEO_ENABLED", False),
         veo_api_key=_get("VEO_API_KEY"),
-        veo_model=_get("VEO_MODEL", "veo-3.0-generate-preview"),
+        veo_model=_get("VEO_MODEL", "veo-3.1-generate-preview"),
         cloudinary_cloud_name=_get("CLOUDINARY_CLOUD_NAME"),
         cloudinary_api_key=_get("CLOUDINARY_API_KEY"),
         cloudinary_api_secret=_get("CLOUDINARY_API_SECRET"),
@@ -260,9 +260,9 @@ def _build_settings() -> Settings:
         crucible_max_turns=_get_int("CRUCIBLE_MAX_TURNS", 5),
         rate_limit_enabled=_get_bool("RATE_LIMIT_ENABLED", True),
         rate_limit_default_per_min=_get_int("RATE_LIMIT_DEFAULT_PER_MIN", 120),
-        ai_rate_limit_free_per_min=_get_int("AI_RATE_LIMIT_FREE_PER_MIN", 10),
-        ai_rate_limit_pro_per_min=_get_int("AI_RATE_LIMIT_PRO_PER_MIN", 60),
-        ai_rate_limit_enterprise_per_min=_get_int("AI_RATE_LIMIT_ENTERPRISE_PER_MIN", 240),
+        ai_rate_limit_free_per_min=_get_int("AI_RATE_LIMIT_FREE_PER_MIN", 60),
+        ai_rate_limit_pro_per_min=_get_int("AI_RATE_LIMIT_PRO_PER_MIN", 120),
+        ai_rate_limit_enterprise_per_min=_get_int("AI_RATE_LIMIT_ENTERPRISE_PER_MIN", 360),
         jobs_max_workers=_get_int("JOBS_MAX_WORKERS", 4),
         jobs_retention_minutes=_get_int("JOBS_RETENTION_MINUTES", 60),
         veo_poll_interval_seconds=_get_float("VEO_POLL_INTERVAL_SECONDS", 10.0),

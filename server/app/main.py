@@ -57,6 +57,14 @@ async def lifespan(app: FastAPI):
         settings.app_env,
         settings.api_v1_prefix,
     )
+    # Run database migrations automatically on startup (except in test environment)
+    if settings.app_env != "test":
+        try:
+            from run_migrations import run_migrations
+            run_migrations()
+        except Exception as e:
+            logger.error("Failed to run database migrations on startup: %s", e)
+            raise e
     try:
         yield
     finally:

@@ -12,13 +12,19 @@ import {
   ActivityIndicator,
   Button
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router } from 'expo-router';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { crucibleApi, apiErrorMessage, DialogueTurn, ConceptScoreOut } from '../../services/api';
+import WebCrucible from '../../web/pages/Crucible';
 
 export default function CrucibleSessionScreen() {
+  if (Platform.OS === 'web') {
+    return <WebCrucible />;
+  }
+
   const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
+  const insets = useSafeAreaInsets();
   
   const [turns, setTurns] = useState<DialogueTurn[]>([]);
   const [inputText, setInputText] = useState('');
@@ -132,6 +138,7 @@ export default function CrucibleSessionScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <Stack.Screen options={{ title: 'Concept Crucible', headerShown: false }} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#991bf7" />
           <Text style={styles.loadingText}>Connecting to Crucible examiner...</Text>
@@ -142,6 +149,7 @@ export default function CrucibleSessionScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <Stack.Screen options={{ title: 'Concept Crucible', headerShown: false }} />
       {/* Immersive Session Header */}
       <View style={styles.header}>
         <TouchableOpacity 
@@ -262,7 +270,7 @@ export default function CrucibleSessionScreen() {
           keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
           enabled={Platform.OS === 'ios'}
         >
-          <View style={styles.inputTray}>
+          <View style={[styles.inputTray, { paddingBottom: Math.max(12, insets.bottom + 4) }]}>
             <TextInput
               style={styles.inputField}
               placeholder="Formulate your Socratic assertion..."

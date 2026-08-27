@@ -20,9 +20,11 @@ from typing import Any, Optional
 from sqlalchemy.engine import Connection
 
 from app.ai import gemini_provider, prompts
+from app.ai.base import RetrievedChunk
 from app.ai.rag import assemble_context, retrieve, source_labels
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.repositories import chunk_repo
 from app.schemas.crucible import DIFFICULTY_TO_LEVEL
 
 logger = get_logger(__name__)
@@ -358,3 +360,206 @@ def grounding_for_lesson(
         conn, user_id=user_id, document_id=document_id, seed=seed or "key visual concepts"
     )
     return assembled.numbered_sources
+
+
+# --------------------------------------------------------------------------- #
+# Topic & Sub-Concept Extraction
+# --------------------------------------------------------------------------- #
+@dataclass
+class ExtractedConcept:
+    name: str
+    description: Optional[str] = None
+
+
+@dataclass
+class ExtractedTopic:
+    title: str
+    description: Optional[str] = None
+    concepts: list[ExtractedConcept] = field(default_factory=list)
+
+
+@dataclass
+class TopicExtractionResult:
+    topics: list[ExtractedTopic]
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+def extract_topics_and_concepts(
+    conn: Connection,
+    *,
+    user_id: str,
+    document_id: str,
+) -> TopicExtractionResult:
+    """Extract structured topics and sub-concepts from document chunks via LLM.
+
+    Uses a 3-tier retrieval strategy so topic extraction always has document
+    context even when vector search is unavailable:
+      1. Semantic + hybrid RAG retrieval (primary)
+      2. Direct first-N-chunks fetch (fallback when #1 returns nothing)
+      3. Generic placeholder topics (last resort when document has no chunks)
+    """
+    # --- Tier 1: semantic / hybrid retrieval ---
+    chunks = []
+    try:
+        chunks = retrieve(
+            conn,
+            user_id=user_id,
+            query="main topics, key concepts, architecture, fundamental principles",
+            document_id=document_id,
+            top_k=10,
+        )
+    except Exception as exc:  # noqa: BLE001 - retrieval failure is non-fatal here
+        logger.warning(
+            "topic extraction: semantic retrieval failed for doc %s: %s",
+            document_id,
+            exc,
+        )
+
+    assembled = assemble_context(chunks)
+    logger.debug(
+        "topic extraction: semantic retrieval returned %d chunks for doc %s",
+        len(chunks),
+        document_id,
+    )
+
+    # --- Tier 2: direct chunk fetch fallback ---
+    if assembled.is_empty:
+        logger.info(
+            "topic extraction: semantic retrieval empty for doc %s; "
+            "falling back to direct chunk fetch",
+            document_id,
+        )
+        try:
+            raw_rows = chunk_repo.get_first_for_topic_extraction(
+                conn, user_id=user_id, document_id=document_id, limit=10
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "topic extraction: direct chunk fetch failed for doc %s: %s",
+                document_id,
+                exc,
+            )
+            raw_rows = []
+
+        if raw_rows:
+            fallback_chunks = [
+                RetrievedChunk(
+                    chunk_id=str(r["id"]),
+                    document_id=str(r["document_id"]),
+                    document_title=r.get("document_title") or "Document",
+                    content=r.get("content") or "",
+                    chunk_index=int(r.get("chunk_index") or 0),
+                    score=1.0,
+                    method="direct",
+                )
+                for r in raw_rows
+                if r.get("content")
+            ]
+            assembled = assemble_context(fallback_chunks)
+            logger.info(
+                "topic extraction: direct fetch returned %d chunks for doc %s",
+                len(fallback_chunks),
+                document_id,
+            )
+
+    # --- Tier 3: generic placeholder (no chunks at all) ---
+    if assembled.is_empty:
+        logger.warning(
+            "topic extraction: no chunks available for doc %s — returning generic topics",
+            document_id,
+        )
+        return TopicExtractionResult(
+            topics=[
+                ExtractedTopic(
+                    title="Core Study Material",
+                    description="General concepts from the uploaded material.",
+                    concepts=[
+                        ExtractedConcept(name="Fundamental Concepts", description="Core principles"),
+                        ExtractedConcept(name="Key Applications", description="Main use cases"),
+                    ],
+                )
+            ]
+        )
+
+    user_prompt = prompts.build_topic_extraction_prompt(assembled.numbered_sources)
+    logger.debug(
+        "topic extraction: calling LLM for doc %s (context chars=%d)",
+        document_id,
+        len(assembled.numbered_sources),
+    )
+    result = gemini_provider.generate_text(
+        system_prompt=prompts.TOPIC_EXTRACTION_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+        temperature=0.3,
+        json_mode=True,
+    )
+    logger.debug(
+        "topic extraction: LLM response length=%d for doc %s",
+        len(result.text),
+        document_id,
+    )
+
+    try:
+        data = _parse_json_object(result.text)
+    except ValueError:
+        logger.warning(
+            "topic extraction: could not parse LLM JSON for doc %s; raw=%r",
+            document_id,
+            result.text[:200],
+        )
+        data = {}
+
+    topics_list: list[ExtractedTopic] = []
+    raw_topics = data.get("topics") if isinstance(data, dict) else None
+    if isinstance(raw_topics, list):
+        for t in raw_topics:
+            if not isinstance(t, dict) or not t.get("title"):
+                continue
+            concepts_list: list[ExtractedConcept] = []
+            raw_concepts = t.get("concepts")
+            if isinstance(raw_concepts, list):
+                for c in raw_concepts:
+                    if isinstance(c, dict) and c.get("name"):
+                        concepts_list.append(
+                            ExtractedConcept(
+                                name=str(c.get("name")).strip(),
+                                description=str(c.get("description")).strip() if c.get("description") else None,
+                            )
+                        )
+            topics_list.append(
+                ExtractedTopic(
+                    title=str(t.get("title")).strip(),
+                    description=str(t.get("description")).strip() if t.get("description") else None,
+                    concepts=concepts_list,
+                )
+            )
+
+    if not topics_list:
+        logger.warning(
+            "topic extraction: LLM returned no valid topics for doc %s — using fallback",
+            document_id,
+        )
+        topics_list = [
+            ExtractedTopic(
+                title="Core Study Material",
+                description="General concepts from the uploaded material.",
+                concepts=[
+                    ExtractedConcept(name="Fundamental Concepts", description="Core principles"),
+                    ExtractedConcept(name="Key Applications", description="Main use cases"),
+                ],
+            )
+        ]
+    else:
+        logger.info(
+            "topic extraction: extracted %d topics for doc %s",
+            len(topics_list),
+            document_id,
+        )
+
+    return TopicExtractionResult(
+        topics=topics_list,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+    )
+

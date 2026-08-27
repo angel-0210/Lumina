@@ -16,7 +16,7 @@ from sqlalchemy.engine import Connection
 
 from app.core.exceptions import NotFoundError
 from app.core.security import AuthPrincipal
-from app.repositories import learning_repo, mastery_repo
+from app.repositories import learning_repo, mastery_repo, topic_repo
 from app.schemas.mastery import ConceptNode, MasteryMap, MasterySummaryItem
 from .formatting import clamp01, mastery_to_fraction
 
@@ -46,10 +46,10 @@ def get_summary(conn: Connection, principal: AuthPrincipal) -> list[MasterySumma
     ]
 
 
-def _node_status(mastery_0_100: float) -> str:
+def _node_status(mastery_0_100: float, is_first: bool = False) -> str:
     if mastery_0_100 >= _MASTERED_AT:
         return "Mastered"
-    if mastery_0_100 > 0:
+    if mastery_0_100 > 0 or is_first:
         return "Reviewing"
     return "Locked"
 
@@ -64,19 +64,35 @@ def get_map(conn: Connection, principal: AuthPrincipal, topic_id: str) -> Master
     concepts: list[ConceptNode] = []
     prev_id: str | None = None
     total = 0.0
-    for r in rows:
-        mastery_val = float(r.get("mastery") or 0)
-        total += mastery_val
-        concepts.append(
-            ConceptNode(
-                id=str(r["id"]),
-                name=r.get("concept_name") or "",
-                status=_node_status(mastery_val),
-                progress=mastery_to_fraction(mastery_val),
-                prerequisite=prev_id,
+
+    if rows:
+        for idx, r in enumerate(rows):
+            mastery_val = float(r.get("mastery") or 0)
+            total += mastery_val
+            concepts.append(
+                ConceptNode(
+                    id=str(r["id"]),
+                    name=r.get("concept_name") or "",
+                    status=_node_status(mastery_val, is_first=(idx == 0)),
+                    progress=mastery_to_fraction(mastery_val),
+                    prerequisite=prev_id,
+                )
             )
-        )
-        prev_id = str(r["id"])
+            prev_id = str(r["id"])
+    else:
+        # Fallback to document concepts extracted during ingestion
+        doc_concepts = topic_repo.list_concepts_for_document(conn, topic["document_id"], principal.id)
+        for idx, c in enumerate(doc_concepts):
+            concepts.append(
+                ConceptNode(
+                    id=str(c["id"]),
+                    name=c.get("name") or "",
+                    status=_node_status(0, is_first=(idx == 0)),
+                    progress=0.0,
+                    prerequisite=prev_id,
+                )
+            )
+            prev_id = str(c["id"])
 
     overall = clamp01((total / len(concepts) / 100.0)) if concepts else 0.0
     return MasteryMap(

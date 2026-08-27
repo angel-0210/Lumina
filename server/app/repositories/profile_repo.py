@@ -35,6 +35,8 @@ def upsert(
     if row is None:
         # Already existed; fetch it.
         row = get(conn, user_id)
+        if row and (row.get("name") is None or row.get("name") == "New Learner") and name:
+            row = update_profile(conn, user_id, name=name) or row
     return row  # type: ignore[return-value]
 
 

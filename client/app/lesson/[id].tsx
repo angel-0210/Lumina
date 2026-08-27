@@ -8,21 +8,40 @@ import {
   Dimensions,
   Platform,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { learningApi, apiErrorMessage, Lesson, Scene } from '../../services/api';
-
-const { width } = Dimensions.get('window');
+import { 
+  learningApi, 
+  mediaApi, 
+  apiErrorMessage, 
+  Lesson, 
+  Scene, 
+  MediaAsset 
+} from '../../services/api';
+import WebLessonPlayer from '../../web/pages/Learning/LearningDetail';
 
 export default function LessonPlayerScreen() {
+  if (Platform.OS === 'web') {
+    return <WebLessonPlayer />;
+  }
+
   const { id } = useLocalSearchParams<{ id: string }>();
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
+  
+  // Media asset integration
+  const [mediaAssets, setMediaAssets] = useState<MediaAsset[]>([]);
+  const [generatingSceneIndex, setGeneratingSceneIndex] = useState<number | null>(null);
+  const [generatingKind, setGeneratingKind] = useState<'image' | 'video' | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<number>(0);
+  
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchLesson = async (showLoading = true) => {
     if (!id) return;
@@ -30,7 +49,7 @@ export default function LessonPlayerScreen() {
     try {
       const data = await learningApi.getLesson(id);
       setLesson(data);
-      // If we have scenes, stop polling.
+      // If we have scenes, stop polling lesson generation.
       if (data.scenes && data.scenes.length > 0) {
         if (pollRef.current) {
           clearInterval(pollRef.current);
@@ -45,8 +64,19 @@ export default function LessonPlayerScreen() {
     }
   };
 
+  const fetchMedia = async () => {
+    if (!id) return;
+    try {
+      const res = await mediaApi.list(id);
+      setMediaAssets(res.items);
+    } catch (err) {
+      console.log('Failed to fetch media assets:', err);
+    }
+  };
+
   useEffect(() => {
     fetchLesson(true);
+    fetchMedia();
 
     // Set up polling in case scenes are still generating
     pollRef.current = setInterval(() => {
@@ -54,11 +84,66 @@ export default function LessonPlayerScreen() {
     }, 4000);
 
     return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-      }
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (jobPollRef.current) clearInterval(jobPollRef.current);
     };
   }, [id]);
+
+  const startPollingJob = (jobId: string) => {
+    if (jobPollRef.current) clearInterval(jobPollRef.current);
+    setGenerationProgress(10);
+    
+    jobPollRef.current = setInterval(async () => {
+      try {
+        const job = await mediaApi.getJobStatus(jobId);
+        setGenerationProgress(job.progress_pct || 15);
+        
+        if (job.status === 'completed') {
+          if (jobPollRef.current) {
+            clearInterval(jobPollRef.current);
+            jobPollRef.current = null;
+          }
+          setGeneratingSceneIndex(null);
+          setGeneratingKind(null);
+          fetchMedia();
+        } else if (job.status === 'failed') {
+          if (jobPollRef.current) {
+            clearInterval(jobPollRef.current);
+            jobPollRef.current = null;
+          }
+          setGeneratingSceneIndex(null);
+          setGeneratingKind(null);
+          Alert.alert('Generation Failed', job.error_message || 'Could not generate visual.');
+        }
+      } catch (err) {
+        // Ignore transient status fetch errors
+      }
+    }, 2500);
+  };
+
+  const handleGenerateVisual = async (sceneIndex: number, scene: Scene) => {
+    setGeneratingSceneIndex(sceneIndex);
+    const isAnimation = scene.visualType === 'animation';
+    setGeneratingKind(isAnimation ? 'video' : 'image');
+    setGenerationProgress(5);
+
+    // Prompt structured to match back specifically to this scene index
+    const prompt = `Scene ${sceneIndex + 1}: ${scene.concept}. ${scene.visualHint || ''}`;
+
+    try {
+      if (isAnimation) {
+        const res = await mediaApi.generateVideo(prompt, '16:9', id);
+        startPollingJob(res.job.job_id);
+      } else {
+        const res = await mediaApi.generateImage(prompt, id);
+        startPollingJob(res.job.job_id);
+      }
+    } catch (err) {
+      setGeneratingSceneIndex(null);
+      setGeneratingKind(null);
+      Alert.alert('Generation Failed', apiErrorMessage(err, 'Failed to request AI media asset.'));
+    }
+  };
 
   const handleNext = () => {
     if (!lesson || !lesson.scenes) return;
@@ -84,6 +169,7 @@ export default function LessonPlayerScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <Stack.Screen options={{ title: 'Lesson Player', headerShown: false }} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#991bf7" />
           <Text style={styles.loadingText}>Loading lesson player...</Text>
@@ -98,6 +184,7 @@ export default function LessonPlayerScreen() {
   if (!lesson.scenes || lesson.scenes.length === 0) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <Stack.Screen options={{ title: 'Lesson Player', headerShown: false }} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#dfb7ff" />
           <Text style={styles.loadingText}>Generating tutorial scenes...</Text>
@@ -108,10 +195,26 @@ export default function LessonPlayerScreen() {
   }
 
   const currentScene = lesson.scenes[currentSceneIndex];
+  const visualData = currentScene.visualData as any;
   const progressPercent = ((currentSceneIndex + 1) / lesson.scenes.length) * 100;
+
+  // Look for a matching generated visual for this scene index
+  const sceneAsset = mediaAssets.find(
+    (asset) => asset.prompt && asset.prompt.includes(`Scene ${currentSceneIndex + 1}:`)
+  );
+
+  const isSceneGenerating = generatingSceneIndex === currentSceneIndex;
+
+  // Convert VEO mp4 videos to animated gifs dynamically using Cloudinary format conversion
+  let mediaUrl = sceneAsset?.url;
+  if (mediaUrl && sceneAsset?.kind === 'video' && mediaUrl.toLowerCase().endsWith('.mp4')) {
+    mediaUrl = mediaUrl.replace('/video/upload/', '/image/upload/');
+    mediaUrl = mediaUrl.substring(0, mediaUrl.lastIndexOf('.')) + '.gif';
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <Stack.Screen options={{ title: 'Lesson Player', headerShown: false }} />
       {/* Immersive Top Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity 
@@ -138,22 +241,108 @@ export default function LessonPlayerScreen() {
       {/* Animation/Visual viewport */}
       <View style={styles.visualViewport}>
         <View style={styles.visualGlassBox}>
-          {/* Simulated Scene Graphic representation */}
-          <Ionicons 
-            name={
-              currentScene.visualType === 'chart' ? "bar-chart-outline" :
-              currentScene.visualType === 'code' ? "code-slash-outline" :
-              currentScene.visualType === 'diagram' ? "git-network-outline" :
-              currentScene.visualType === 'animation' ? "play-circle-outline" :
-              "document-text-outline"
-            } 
-            size={80} 
-            color="#dfb7ff" 
-          />
-          <Text style={styles.conceptLabel}>{currentScene.concept}</Text>
-          <View style={styles.visualDetailsCard}>
-            <Text style={styles.visualHintText}>{currentScene.visualHint || 'Visual reference metadata'}</Text>
-          </View>
+          {isSceneGenerating ? (
+            /* Media Generating State */
+            <View style={styles.mediaLoadingContainer}>
+              <ActivityIndicator size="large" color="#dfb7ff" />
+              <Text style={styles.mediaLoadingText}>
+                {generatingKind === 'video' ? 'Generating VEO Animation…' : 'Generating Imagen Illustration…'}
+              </Text>
+              <View style={styles.mediaProgressBg}>
+                <View style={[styles.mediaProgressFill, { width: `${generationProgress}%` }]} />
+              </View>
+              <Text style={styles.mediaProgressText}>{generationProgress}% Complete</Text>
+            </View>
+          ) : mediaUrl ? (
+            /* Real AI-Generated Media Render */
+            <View style={styles.mediaWrapper}>
+              <Image 
+                source={{ uri: mediaUrl }} 
+                style={styles.mediaImage} 
+                resizeMode="cover" 
+              />
+              <View style={styles.mediaBadge}>
+                <Ionicons 
+                  name={sceneAsset?.kind === 'video' ? 'film' : 'sparkles'} 
+                  size={12} 
+                  color="#dfb7ff" 
+                />
+                <Text style={styles.mediaBadgeText}>
+                  {sceneAsset?.kind === 'video' ? 'VEO Video' : 'AI Imagen'}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            /* Fallback type-specific rich content viewport */
+            <View style={styles.fallbackVisual}>
+              {currentScene.visualType === 'code' && visualData?.snippet ? (
+                /* Dynamic Code Block representation */
+                <View style={styles.codeContainer}>
+                  <View style={styles.codeHeader}>
+                    <Ionicons name="code-slash" size={14} color="#6e748a" />
+                    <Text style={styles.codeHeaderText}>
+                      {visualData?.language || 'Code Snippet'}
+                    </Text>
+                  </View>
+                  <ScrollView style={styles.codeScroll} showsVerticalScrollIndicator={false}>
+                    <Text style={styles.codeText}>{visualData?.snippet}</Text>
+                  </ScrollView>
+                </View>
+              ) : currentScene.visualType === 'chart' && visualData?.points ? (
+                /* Simulated Chart Block representation */
+                <View style={styles.chartContainer}>
+                  <Text style={styles.chartTitle}>{visualData?.title || 'Data Points'}</Text>
+                  <View style={styles.chartMockGrid}>
+                    {(visualData?.points || []).slice(0, 5).map((p: any, i: number) => {
+                      const val = Number(p.value || p.val || 50);
+                      const label = String(p.label || p.name || i);
+                      return (
+                        <View key={i} style={styles.chartMockCol}>
+                          <View style={styles.chartMockBarContainer}>
+                            <View style={[styles.chartMockBar, { height: `${Math.min(100, Math.max(10, val))}%` }]} />
+                          </View>
+                          <Text style={styles.chartLabel} numberOfLines={1}>{label}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : (
+                /* Standard Icon Viewport */
+                <View style={styles.iconVisualBox}>
+                  <Ionicons 
+                    name={
+                      currentScene.visualType === 'chart' ? "bar-chart-outline" :
+                      currentScene.visualType === 'code' ? "code-slash-outline" :
+                      currentScene.visualType === 'diagram' ? "git-network-outline" :
+                      currentScene.visualType === 'animation' ? "play-circle-outline" :
+                      "document-text-outline"
+                    } 
+                    size={64} 
+                    color="#dfb7ff" 
+                  />
+                  <Text style={styles.conceptLabel}>{currentScene.concept}</Text>
+                  <View style={styles.visualDetailsCard}>
+                    <Text style={styles.visualHintText}>{currentScene.visualHint || 'Visual reference'}</Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Generate AI Media Button Overlay */}
+              {(currentScene.visualType === 'animation' || currentScene.visualType === 'diagram') && (
+                <TouchableOpacity 
+                  style={styles.aiGenerateButton}
+                  onPress={() => handleGenerateVisual(currentSceneIndex, currentScene)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="sparkles" size={16} color="#ffffff" />
+                  <Text style={styles.aiGenerateButtonText}>
+                    {currentScene.visualType === 'animation' ? 'Generate VEO Animation' : 'Generate AI Image'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
         </View>
       </View>
 
@@ -273,7 +462,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   visualViewport: {
-    flex: 1.2,
+    flex: 1.3,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
@@ -288,17 +477,18 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: 16,
+    overflow: 'hidden',
   },
   conceptLabel: {
     fontSize: 18,
     fontWeight: '700',
     color: '#f0f2f8',
-    marginTop: 20,
+    marginTop: 14,
     textAlign: 'center',
   },
   visualDetailsCard: {
-    marginTop: 12,
+    marginTop: 10,
     paddingHorizontal: 12,
     paddingVertical: 6,
     backgroundColor: 'rgba(153, 27, 247, 0.08)',
@@ -312,7 +502,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   narrationPanel: {
-    flex: 0.8,
+    flex: 0.7,
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -378,5 +568,193 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
+  },
+
+  /* Real AI Visual Styles */
+  mediaWrapper: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  mediaImage: {
+    width: '100%',
+    height: '100%',
+  },
+  mediaBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(13, 17, 23, 0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(154, 140, 160, 0.25)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  mediaBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#dfb7ff',
+  },
+
+  /* AI Visual Generation loading styles */
+  mediaLoadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  mediaLoadingText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#f0f2f8',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  mediaProgressBg: {
+    width: 160,
+    height: 6,
+    backgroundColor: '#1b1d26',
+    borderRadius: 3,
+    marginTop: 16,
+    overflow: 'hidden',
+  },
+  mediaProgressFill: {
+    height: '100%',
+    backgroundColor: '#dfb7ff',
+    borderRadius: 3,
+  },
+  mediaProgressText: {
+    fontSize: 11,
+    color: '#6e748a',
+    marginTop: 8,
+  },
+
+  /* Fallback Rich Visual Viewport Styles */
+  fallbackVisual: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconVisualBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiGenerateButton: {
+    position: 'absolute',
+    bottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#991bf7',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    ...Platform.select({
+      web: {
+        boxShadow: '0px 4px 6px rgba(153, 27, 247, 0.3)',
+      },
+      default: {
+        shadowColor: '#991bf7',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 6,
+      },
+    }),
+    elevation: 4,
+  },
+  aiGenerateButtonText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  /* Rich Code Viewport style */
+  codeContainer: {
+    width: '100%',
+    height: '80%',
+    backgroundColor: '#07090e',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(154, 140, 160, 0.08)',
+    overflow: 'hidden',
+    padding: 12,
+  },
+  codeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(154, 140, 160, 0.08)',
+    paddingBottom: 6,
+  },
+  codeHeaderText: {
+    color: '#6e748a',
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    fontWeight: '700',
+  },
+  codeScroll: {
+    flex: 1,
+  },
+  codeText: {
+    color: '#b8bdd4',
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    fontSize: 12,
+    lineHeight: 18,
+  },
+
+  /* Rich Chart Viewport style */
+  chartContainer: {
+    width: '100%',
+    height: '80%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+  },
+  chartTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#dfb7ff',
+    marginBottom: 16,
+  },
+  chartMockGrid: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    width: '100%',
+    height: '70%',
+    borderBottomWidth: 1.5,
+    borderBottomColor: 'rgba(154, 140, 160, 0.2)',
+    paddingBottom: 6,
+  },
+  chartMockCol: {
+    alignItems: 'center',
+    flex: 1,
+    height: '100%',
+    justifyContent: 'flex-end',
+  },
+  chartMockBarContainer: {
+    width: 24,
+    height: '85%',
+    justifyContent: 'flex-end',
+  },
+  chartMockBar: {
+    backgroundColor: '#991bf7',
+    width: '100%',
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+  },
+  chartLabel: {
+    fontSize: 9,
+    color: '#6e748a',
+    marginTop: 6,
+    width: 44,
+    textAlign: 'center',
   },
 });

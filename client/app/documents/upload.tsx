@@ -9,7 +9,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import Button from '../../components/Button';
@@ -140,6 +140,7 @@ export default function DocumentUploadScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <Stack.Screen options={{ title: 'Upload Document', headerShown: false }} />
       {/* Header bar */}
       <View style={styles.header}>
         <TouchableOpacity
