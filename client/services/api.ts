@@ -10,7 +10,7 @@
 import axios, { AxiosError, AxiosInstance, AxiosResponse } from 'axios';
 import { useAppStore } from '../store';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://192.168.1.6:8000';
 const API_PREFIX = '/api/v1';
 
 // ─── Axios instance ─────────────────────────────────────────────────────────

@@ -16,6 +16,8 @@ import { useAppStore } from '../../store';
 export default function ProfileScreen() {
   const resetAppState = useAppStore((state) => state.resetAppState);
   
+  const user = useAppStore((state) => state.user);
+
   // App preferences state
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(true);
@@ -40,6 +42,9 @@ export default function ProfileScreen() {
     Alert.alert('Edit Profile', 'Profile modifications are currently controlled by your workspace identity manager.');
   };
 
+  const displayName = user?.name || user?.email?.split('@')[0] || 'Initiate';
+  const displayEmail = user?.email || 'dev@lumina.ai';
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView 
@@ -51,8 +56,8 @@ export default function ProfileScreen() {
           <View style={styles.avatarWrapper}>
             <Ionicons name="person" size={48} color="#dfb7ff" />
           </View>
-          <Text style={styles.profileName}>Alex Johnson</Text>
-          <Text style={styles.profileEmail}>alex.johnson@lumina.ai</Text>
+          <Text style={styles.profileName}>{displayName}</Text>
+          <Text style={styles.profileEmail}>{displayEmail}</Text>
           
           <TouchableOpacity 
             style={styles.editButton} 
