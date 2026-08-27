@@ -6,6 +6,7 @@ import { View, ActivityIndicator } from 'react-native';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { useAppStore, restoreAuth } from '../store';
 import { authApi, apiErrorMessage } from '../services/api';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 // Prevent splash screen auto-hiding until session restore is done.
 SplashScreen.preventAutoHideAsync();
@@ -78,7 +79,11 @@ export default function RootLayout() {
     return null;
   }
 
-  return <RootLayoutNav />;
+  return (
+    <ErrorBoundary>
+      <RootLayoutNav />
+    </ErrorBoundary>
+  );
 }
 
 function RootLayoutNav() {

@@ -16,27 +16,90 @@ import WebLayout from '../../layouts/WebLayout';
 
 export default function WebDashboard() {
   const user = useAppStore((state) => state.user);
+  const sessionRestored = useAppStore((state) => state.sessionRestored);
+  const accessToken = useAppStore((state) => state.accessToken);
   
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fetchAttempts, setFetchAttempts] = useState(0);
+  const MAX_RETRY_ATTEMPTS = 3;
 
   const fetchDashboardData = async () => {
     try {
+      // Safety guard: prevent infinite retry loops
+      if (fetchAttempts >= MAX_RETRY_ATTEMPTS) {
+        setError('Unable to load dashboard after multiple attempts. Please refresh the page.');
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError(null);
+      
+      // Extra validation: ensure token exists before making request
+      const token = useAppStore.getState().accessToken;
+      if (!token) {
+        setError('Authentication required. Please log in again.');
+        setLoading(false);
+        return;
+      }
+
       const res = await dashboardApi.get();
+      
+      // Validate response structure before setting state
+      if (!res) {
+        setError('Received empty response from server. Please try again.');
+        setLoading(false);
+        return;
+      }
+
       setData(res);
+      setFetchAttempts(0); // Reset on success
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to retrieve dashboard details.'));
+      setFetchAttempts(prev => prev + 1);
+      const errorMsg = apiErrorMessage(err, 'Failed to retrieve dashboard details.');
+      setError(errorMsg);
+      console.error('[Dashboard] Fetch error on attempt', fetchAttempts + 1, ':', err);
     } finally {
       setLoading(false);
     }
   };
 
+  // Only call fetchDashboardData after session is restored AND token exists
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    if (sessionRestored && accessToken) {
+      fetchDashboardData();
+    }
+  }, [sessionRestored, accessToken]);
+
+  // Block rendering until session is restored
+  if (!sessionRestored) {
+    return (
+      <WebLayout>
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#dfb7ff" />
+          <Text style={styles.loadingText}>Initializing session...</Text>
+        </View>
+      </WebLayout>
+    );
+  }
+
+  // Block rendering if no access token after session restore
+  if (!accessToken) {
+    return (
+      <WebLayout>
+        <View style={styles.errorCard}>
+          <Ionicons name="alert-circle" size={36} color="#ffb4ab" />
+          <Text style={styles.errorTitle}>Authentication Required</Text>
+          <Text style={styles.errorText}>Please log in to access your dashboard.</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => router.replace('/login')}>
+            <Text style={styles.retryButtonText}>Go to Login</Text>
+          </TouchableOpacity>
+        </View>
+      </WebLayout>
+    );
+  }
 
   const getGreeting = () => {
     const hr = new Date().getHours();
@@ -106,7 +169,7 @@ export default function WebDashboard() {
             <View style={styles.bentoLeft}>
               
               {/* Continue learning hero card */}
-              <View style={[styles.heroCard, 'ai-shimmer-bg' as any]}>
+              <View style={[styles.heroCard, { position: 'relative', overflow: 'hidden' } as any]}>
                 <View style={styles.heroGlow} />
                 
                 <View style={styles.heroBody}>
@@ -185,42 +248,63 @@ export default function WebDashboard() {
 
                 {data?.recentDocuments && data.recentDocuments.length > 0 ? (
                   <View style={webStyles.documentsGrid as any}>
-                    {data.recentDocuments.slice(0, 4).map((doc) => (
-                      <TouchableOpacity
-                        key={doc.id}
-                        style={styles.docCard}
-                        onPress={() => router.push(`/documents/${doc.id}`)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={styles.docCardHeader}>
-                          {/* Circular Progress Ring */}
-                          <View style={styles.progressRingWrapper}>
-                            <svg style={webStyles.svgRing as any} viewBox="0 0 36 36">
-                              <path
-                                style={webStyles.svgRingBg as any}
-                                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                              />
-                              <path
-                                style={webStyles.svgRingFill as any}
-                                strokeDasharray="100, 100"
-                                strokeDashoffset={100 - (doc.progress * 100)}
-                                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                              />
-                            </svg>
-                            <Text style={styles.progressRingVal}>
-                              {Math.round(doc.progress * 100)}%
-                            </Text>
+                    {data.recentDocuments.slice(0, 4).map((doc) => {
+                      // Ensure progress is a valid number
+                      const progressPercent = Math.max(0, Math.min(100, (doc.progress ?? 0) * 100));
+                      const dashOffset = 100 - progressPercent;
+
+                      return (
+                        <TouchableOpacity
+                          key={doc.id}
+                          style={styles.docCard}
+                          onPress={() => router.push(`/documents/${doc.id}`)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={styles.docCardHeader}>
+                            {/* Circular Progress Ring */}
+                            <View style={styles.progressRingWrapper}>
+                              <svg 
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  transform: 'rotate(-90deg)',
+                                } as any}
+                                viewBox="0 0 36 36"
+                              >
+                                <path
+                                  fill="none"
+                                  stroke="rgba(245, 248, 255, 0.04)"
+                                  strokeWidth="3"
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                />
+                                <path
+                                  fill="none"
+                                  stroke="#408175"
+                                  strokeWidth="3"
+                                  strokeLinecap="round"
+                                  strokeDasharray="100, 100"
+                                  strokeDashoffset={dashOffset}
+                                  style={{
+                                    transition: 'stroke-dashoffset 0.3s ease',
+                                  }}
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                />
+                              </svg>
+                              <Text style={styles.progressRingVal}>
+                                {Math.round(progressPercent)}%
+                              </Text>
+                            </View>
+                            <Text style={styles.docCardDate}>{doc.date ?? 'N/A'}</Text>
                           </View>
-                          <Text style={styles.docCardDate}>{doc.date}</Text>
-                        </View>
-                        <Text style={styles.docCardTitle} numberOfLines={1}>
-                          {doc.title}
-                        </Text>
-                        <Text style={styles.docCardMeta} numberOfLines={1}>
-                          {doc.file_type?.toUpperCase() || 'DOCUMENT'} • {doc.topics} {doc.topics === 1 ? 'Topic' : 'Topics'}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                          <Text style={styles.docCardTitle} numberOfLines={1}>
+                            {doc.title ?? 'Untitled'}
+                          </Text>
+                          <Text style={styles.docCardMeta} numberOfLines={1}>
+                            {(doc.file_type ?? 'document').toUpperCase()} • {doc.topics ?? 0} {(doc.topics ?? 0) === 1 ? 'Topic' : 'Topics'}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 ) : (
                   <View style={styles.emptyDocumentsCard}>
@@ -242,7 +326,7 @@ export default function WebDashboard() {
                 <Text style={styles.mapCardTitle}>Understanding Map</Text>
                 
                 {/* AI Assessment Overlay */}
-                <View style={[styles.assessmentBox, 'ai-pulse-glow' as any]}>
+                <View style={[styles.assessmentBox, { animation: 'pulse-glow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite' } as any]}>
                   <Ionicons name="sparkles" size={16} color="#B5B9F0" style={styles.assessmentIcon} />
                   <View style={styles.assessmentTextWrapper}>
                     <Text style={styles.assessmentLabel}>AI Assessment</Text>
@@ -255,7 +339,15 @@ export default function WebDashboard() {
                 {/* Graph Visualization */}
                 <View style={styles.graphViewport}>
                   <View style={webStyles.dotGridOverlay as any} />
-                  <svg style={webStyles.graphSvgLines as any}>
+                  <svg 
+                    style={{
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      width: '100%',
+                      height: '100%',
+                    } as any}
+                  >
                     <line x1="50%" y1="20%" x2="25%" y2="50%" stroke="rgba(64, 129, 117, 0.4)" strokeWidth="1.5" />
                     <line x1="50%" y1="20%" x2="75%" y2="50%" stroke="rgba(255, 191, 0, 0.4)" strokeWidth="1.5" />
                     <line x1="25%" y1="50%" x2="50%" y2="80%" stroke="rgba(154, 140, 160, 0.2)" strokeWidth="1.5" />
@@ -301,22 +393,27 @@ export default function WebDashboard() {
                 <Text style={styles.masteryTitle}>Mastery Overview</Text>
                 {data?.masterySummary && data.masterySummary.length > 0 ? (
                   <View style={styles.masteryList}>
-                    {data.masterySummary.slice(0, 4).map((m, idx) => (
-                      <View key={idx} style={styles.masteryItem}>
-                        <View style={styles.masteryItemHeader}>
-                          <Text style={styles.masteryItemName}>{m.subject}</Text>
-                          <Text style={styles.masteryItemPct}>{Math.round(m.progress * 100)}%</Text>
+                    {data.masterySummary.slice(0, 4).map((m, idx) => {
+                      const progress = Math.max(0, Math.min(100, (m.progress ?? 0) * 100));
+                      return (
+                        <View key={idx} style={styles.masteryItem}>
+                          <View style={styles.masteryItemHeader}>
+                            <Text style={styles.masteryItemName}>{m.subject ?? 'Unknown'}</Text>
+                            <Text style={styles.masteryItemPct}>{Math.round(progress)}%</Text>
+                          </View>
+                          <View style={styles.masteryProgressBarTrack}>
+                            <View
+                              style={{
+                                height: '100%',
+                                borderRadius: 3,
+                                width: `${progress}%`,
+                                backgroundColor: m.color || '#dfb7ff',
+                              } as any}
+                            />
+                          </View>
                         </View>
-                        <View style={styles.masteryProgressBarTrack}>
-                          <View
-                            style={[
-                              styles.masteryProgressBarFill,
-                              { width: `${m.progress * 100}%`, backgroundColor: m.color || '#dfb7ff' },
-                            ]}
-                          />
-                        </View>
-                      </View>
-                    ))}
+                      );
+                    })}
                   </View>
                 ) : (
                   <View style={styles.emptyMastery}>
@@ -834,23 +931,6 @@ const webStyles = {
     gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
     gap: 16,
   },
-  svgRing: {
-    width: '100%',
-    height: '100%',
-    transform: 'rotate(-90deg)',
-  },
-  svgRingBg: {
-    fill: 'none',
-    stroke: 'rgba(245, 248, 255, 0.04)',
-    strokeWidth: 3,
-  },
-  svgRingFill: {
-    fill: 'none',
-    stroke: '#408175',
-    strokeWidth: 3,
-    strokeLinecap: 'round',
-    transition: 'stroke-dashoffset 0.3s ease',
-  },
   dotGridOverlay: {
     position: 'absolute',
     left: 0,
@@ -860,12 +940,5 @@ const webStyles = {
     backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255, 255, 255, 0.06) 1px, transparent 0)',
     backgroundSize: '24px 24px',
     opacity: 0.6,
-  },
-  graphSvgLines: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: '100%',
-    height: '100%',
   },
 };

@@ -87,11 +87,15 @@ client.interceptors.response.use(
   },
   async (error: AxiosError) => {
     const originalRequest = error.config as any;
+    
+    // Prevent infinite retry loops: max 1 retry per request
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
       const refreshToken = useAppStore.getState().refreshToken;
+      
       if (refreshToken) {
         try {
+          console.log('[API] Attempting token refresh...');
           const session = await authApi.refresh(refreshToken);
           useAppStore.getState().setAuth(session.access_token, session.refresh_token ?? null, session.user);
           
@@ -102,14 +106,19 @@ client.interceptors.response.use(
               originalRequest.headers['Authorization'] = `Bearer ${session.access_token}`;
             }
           }
+          console.log('[API] Token refreshed, retrying original request');
           return client(originalRequest);
         } catch (refreshErr) {
+          console.error('[API] Token refresh failed, clearing auth:', refreshErr);
           useAppStore.getState().clearAuth();
           return Promise.reject(refreshErr);
         }
       }
+      
+      console.log('[API] No refresh token available, clearing auth');
       useAppStore.getState().clearAuth();
     }
+    
     return Promise.reject(error);
   }
 );

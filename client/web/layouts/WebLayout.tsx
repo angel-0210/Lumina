@@ -25,14 +25,17 @@ export default function WebLayout({ children }: WebLayoutProps) {
   const clearAuth = useAppStore((state) => state.clearAuth);
   
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
+  const [hasRedirected, setHasRedirected] = useState(false);
 
   // Wait for session restoration before redirecting.
   // This ensures the auth state is fully initialized before making any authenticated API calls.
+  // Use a flag to prevent multiple redirects (circular loop guard).
   useEffect(() => {
-    if (sessionRestored && !accessToken) {
+    if (sessionRestored && !accessToken && !hasRedirected) {
+      setHasRedirected(true);
       router.replace('/login');
     }
-  }, [sessionRestored, accessToken]);
+  }, [sessionRestored, accessToken, hasRedirected]);
 
   // If session is not yet restored, show loading.
   // Do NOT redirect until we know if there's a valid persisted session.
@@ -40,15 +43,18 @@ export default function WebLayout({ children }: WebLayoutProps) {
     return (
       <View style={{ flex: 1, backgroundColor: '#131313', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' as any }}>
         <ActivityIndicator size="large" color="#dfb7ff" />
+        <Text style={{ color: '#d1c1d7', marginTop: 12, fontSize: 13 }}>Restoring session...</Text>
       </View>
     );
   }
 
-  // If session is restored but no access token, redirect to login.
+  // If session is restored but no access token, prevent rendering children until redirect completes.
+  // This guards against rendering authenticated content with null auth state.
   if (!accessToken) {
     return (
       <View style={{ flex: 1, backgroundColor: '#131313', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' as any }}>
         <ActivityIndicator size="large" color="#dfb7ff" />
+        <Text style={{ color: '#d1c1d7', marginTop: 12, fontSize: 13 }}>Redirecting to login...</Text>
       </View>
     );
   }
