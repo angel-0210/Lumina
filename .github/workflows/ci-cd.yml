@@ -124,6 +124,8 @@ jobs:
     name: Build & Publish Release (EAS Build)
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -145,12 +147,48 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      # Triggers Android Release Build on EAS
-      # Note: requires credentials stored on EAS dashboard
-      - name: Build Android App Bundle (AAB) & APK
+      # Triggers Android Release Build on EAS, waits for completion, and downloads the APK
+      - name: Build Android APK
+        id: build_apk
         run: |
-          npx eas build --platform android --profile production --non-interactive --no-wait
-          npx eas build --platform android --profile preview --non-interactive --no-wait
+          mkdir -p release
+          TAG="${{ github.ref_name }}"
+          echo "Building production APK for tag $TAG..."
+          BUILD_JSON=$(npx eas build --platform android --profile production --non-interactive --json)
+          echo "$BUILD_JSON" > release/build_result.json
+          
+          # Extract applicationArchiveUrl from JSON
+          APK_URL=$(echo "$BUILD_JSON" | jq -r '.[0].artifacts.applicationArchiveUrl')
+          
+          if [ -z "$APK_URL" ] || [ "$APK_URL" = "null" ]; then
+            echo "Error: Could not retrieve APK download URL from EAS build output."
+            echo "EAS Build output:"
+            cat release/build_result.json
+            exit 1
+          fi
+          
+          echo "Downloading APK from $APK_URL..."
+          curl -L -o "release/Lumina-Android-$TAG.apk" "$APK_URL"
+
+      # Validate that the downloaded APK file is non-empty and exists
+      - name: Validate APK
+        run: |
+          TAG="${{ github.ref_name }}"
+          APK_PATH="release/Lumina-Android-$TAG.apk"
+          echo "Listing release directory:"
+          ls -lh release/
+          
+          if [ ! -f "$APK_PATH" ]; then
+            echo "Error: APK file does not exist at $APK_PATH"
+            exit 1
+          fi
+          
+          if [ ! -s "$APK_PATH" ]; then
+            echo "Error: APK file at $APK_PATH is empty"
+            exit 1
+          fi
+          
+          echo "APK successfully built and validated at $APK_PATH"
 
       # Creates GitHub Release and uploads static web builds
       - name: Export Web Assets for Release
@@ -165,6 +203,7 @@ jobs:
         with:
           files: |
             lumina-web.zip
+            release/Lumina-Android-${{ github.ref_name }}.apk
           draft: false
           prerelease: false
           generate_release_notes: true
