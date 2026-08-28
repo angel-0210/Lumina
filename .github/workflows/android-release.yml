@@ -18,28 +18,50 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
-      - name: Install Dependencies
+      - name: Verify Node
+        run: |
+          node --version
+          npm --version
+
+      - name: Install dependencies
         run: npm ci
 
-      # Setup Expo CLI and EAS CLI
-      - name: Set up Expo
-        uses: expo/expo-github-action@v8
-        with:
-          expo-version: latest
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Install EAS CLI
+        run: npm install --global eas-cli@latest
+
+      - name: Verify Expo token
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "EXPO_TOKEN GitHub Secret is missing."
+            exit 1
+          fi
+          echo "EXPO_TOKEN is configured."
+
+      - name: Verify EAS
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          eas --version
+          eas whoami
+
+      - name: Verify Expo project
+        run: npx expo config --type public
 
       # Triggers Android Release Build on EAS, waits for completion, and downloads the APK
       - name: Build Android APK
         id: build_apk
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           mkdir -p release
           TAG="${{ github.ref_name }}"
           echo "Building production APK for tag $TAG..."
-          BUILD_JSON=$(npx eas build --platform android --profile production --non-interactive --json)
+          BUILD_JSON=$(eas build --platform android --profile production --non-interactive --json)
           echo "$BUILD_JSON" > release/build_result.json
           
           # Extract applicationArchiveUrl from JSON
