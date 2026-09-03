@@ -66,13 +66,14 @@ def _to_list_item(row: dict[str, Any], *, topics: int = 0) -> DocumentListItem:
 
 
 def list_documents(
-    conn: Connection, principal: AuthPrincipal, *, limit: int, offset: int
+    conn: Connection, principal: AuthPrincipal, *, limit: int, offset: int, q: Optional[str] = None
 ) -> tuple[list[DocumentListItem], int]:
-    rows = document_repo.list_for_user(conn, principal.id, limit=limit, offset=offset)
-    total = document_repo.count_for_user(conn, principal.id)
+    rows = document_repo.list_for_user(conn, principal.id, limit=limit, offset=offset, q=q)
+    total = document_repo.count_for_user(conn, principal.id, q=q)
     counts = document_repo.topic_counts(conn, principal.id)
     items = [_to_list_item(r, topics=counts.get(str(r["id"]), 0)) for r in rows]
     return items, total
+
 
 
 def get_document(conn: Connection, principal: AuthPrincipal, document_id: str) -> DocumentDetail:

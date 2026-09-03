@@ -22,8 +22,11 @@ from app.api.routes import (
     learning,
     mastery,
     media,
+    notifications,
     profile,
     realtime,
+    search,
+    subscription,
 )
 
 api_router = APIRouter()
@@ -31,6 +34,9 @@ api_router = APIRouter()
 api_router.include_router(auth.router)
 api_router.include_router(profile.router)
 api_router.include_router(documents.router)
+api_router.include_router(search.router)
+api_router.include_router(subscription.router)
+api_router.include_router(notifications.router)
 api_router.include_router(learning.topics_router)
 api_router.include_router(learning.lessons_router)
 api_router.include_router(explore.router)
@@ -41,3 +47,4 @@ api_router.include_router(analytics.router)
 api_router.include_router(media.router)
 api_router.include_router(jobs.router)
 api_router.include_router(realtime.router)
+

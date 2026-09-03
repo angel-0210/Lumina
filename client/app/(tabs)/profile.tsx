@@ -9,14 +9,16 @@ import {
   Alert,
   Platform,
   ActivityIndicator,
-  TextInput
+  TextInput,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import { useAppStore } from '../../store';
 import { Redirect } from 'expo-router';
 import { profileApi, apiErrorMessage } from '../../services/api';
-
+import ProUpgradeModal from '../../components/ProUpgradeModal';
 import WebSettings from '../../web/pages/Settings';
 
 export default function ProfileScreen() {
@@ -57,6 +59,8 @@ function MobileProfileScreen() {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(user?.name || '');
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [proModalVisible, setProModalVisible] = useState(false);
 
   const handleLogout = () => {
     Alert.alert(
@@ -84,24 +88,60 @@ function MobileProfileScreen() {
       return;
     }
     try {
-      setSaving(false);
+      setSaving(true);
       const updated = await profileApi.update(editName.trim());
       if (accessToken && user) {
         setAuth(accessToken, refreshToken, {
           ...user,
           name: updated.name,
           email: updated.email,
+          avatar_url: updated.avatar_url,
           subscription: updated.subscription
         });
       }
       setIsEditing(false);
     } catch (err) {
       Alert.alert('Error', apiErrorMessage(err, 'We couldn\'t update your profile. Please try again.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handlePickAvatar = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ['image/jpeg', 'image/png', 'image/webp'],
+        copyToCacheDirectory: true,
+      });
+
+      if (!res.canceled && res.assets && res.assets.length > 0) {
+        const asset = res.assets[0];
+        setUploadingAvatar(true);
+        const updated = await profileApi.uploadAvatar(
+          asset.uri,
+          asset.name || 'avatar.jpg',
+          asset.mimeType || 'image/jpeg'
+        );
+
+        if (accessToken && user) {
+          setAuth(accessToken, refreshToken, {
+            ...user,
+            avatar_url: updated.avatar_url,
+          });
+        }
+        Alert.alert('Success', 'Profile photo updated successfully.');
+      }
+    } catch (err) {
+      Alert.alert('Error', apiErrorMessage(err, 'Failed to update profile photo.'));
+    } finally {
+      setUploadingAvatar(false);
     }
   };
 
   const displayName = user?.name || user?.email?.split('@')[0] || 'Initiate';
   const displayEmail = user?.email || 'dev@lumina.ai';
+  const avatarUrl = user?.avatar_url || user?.avatarUrl;
+  const userInitials = (displayName || 'L').slice(0, 2).toUpperCase();
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -111,9 +151,21 @@ function MobileProfileScreen() {
       >
         {/* Profile Card Header */}
         <View style={styles.profileHeader}>
-          <View style={styles.avatarWrapper}>
-            <Ionicons name="person" size={48} color="#dfb7ff" />
-          </View>
+          <TouchableOpacity onPress={handlePickAvatar} disabled={uploadingAvatar} activeOpacity={0.8}>
+            <View style={styles.avatarWrapper}>
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
+              ) : (
+                <Text style={styles.avatarInitials}>{userInitials}</Text>
+              )}
+              {uploadingAvatar && (
+                <View style={styles.avatarOverlay}>
+                  <ActivityIndicator size="small" color="#dfb7ff" />
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+
           {isEditing ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 8 }}>
               <TextInput
@@ -122,7 +174,7 @@ function MobileProfileScreen() {
                 onChangeText={setEditName}
                 autoFocus
               />
-              <TouchableOpacity onPress={handleSaveName}>
+              <TouchableOpacity onPress={handleSaveName} disabled={saving}>
                 <Ionicons name="checkmark-circle-outline" size={24} color="#408175" />
               </TouchableOpacity>
               <TouchableOpacity onPress={() => setIsEditing(false)}>
@@ -133,17 +185,28 @@ function MobileProfileScreen() {
             <Text style={styles.profileName}>{displayName}</Text>
           )}
           <Text style={styles.profileEmail}>{displayEmail}</Text>
-          
-          {!isEditing && (
-            <TouchableOpacity 
-              style={styles.editButton} 
-              onPress={handleEditProfile}
+
+          <View style={styles.headerBtnRow}>
+            {!isEditing && (
+              <TouchableOpacity 
+                style={styles.editButton} 
+                onPress={handleEditProfile}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="create-outline" size={14} color="#dfb7ff" />
+                <Text style={styles.editButtonText}>Edit Profile</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.proBadgeBtn}
+              onPress={() => setProModalVisible(true)}
               activeOpacity={0.7}
             >
-              <Ionicons name="create-outline" size={16} color="#dfb7ff" />
-              <Text style={styles.editButtonText}>Edit Profile</Text>
+              <Ionicons name="sparkles" size={14} color="#131313" />
+              <Text style={styles.proBadgeText}>{(user?.subscription || 'Free').toUpperCase()}</Text>
             </TouchableOpacity>
-          )}
+          </View>
         </View>
 
         {/* Settings Group: Preferences */}
@@ -239,6 +302,11 @@ function MobileProfileScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <ProUpgradeModal
+        visible={proModalVisible}
+        onClose={() => setProModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -250,7 +318,7 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     padding: 20,
-    paddingBottom: 100, // account for floating bottom tab
+    paddingBottom: 100,
   },
   profileHeader: {
     alignItems: 'center',
@@ -261,12 +329,29 @@ const styles = StyleSheet.create({
     width: 90,
     height: 90,
     borderRadius: 45,
-    backgroundColor: 'rgba(153, 27, 247, 0.08)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(153, 27, 247, 0.25)',
+    backgroundColor: 'rgba(153, 27, 247, 0.1)',
+    borderWidth: 2,
+    borderColor: 'rgba(223, 183, 255, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  avatarImg: {
+    width: '100%',
+    height: '100%',
+  },
+  avatarInitials: {
+    color: '#ffffff',
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  avatarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   profileName: {
     fontSize: 22,
@@ -278,6 +363,12 @@ const styles = StyleSheet.create({
     color: '#6e748a',
     marginTop: 4,
   },
+  headerBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 16,
+  },
   editButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -288,12 +379,25 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 6,
-    marginTop: 16,
   },
   editButtonText: {
     fontSize: 12,
     color: '#dfb7ff',
     fontWeight: '600',
+  },
+  proBadgeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#dfb7ff',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  proBadgeText: {
+    fontSize: 12,
+    color: '#131313',
+    fontWeight: '800',
   },
   groupTitle: {
     fontSize: 11,

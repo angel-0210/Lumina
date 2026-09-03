@@ -60,10 +60,14 @@ def list_for_user(
     *,
     limit: int,
     offset: int,
+    q: Optional[str] = None,
 ) -> list[dict[str, Any]]:
+    conditions = [documents.c.user_id == user_id, documents.c.deleted_at.is_(None)]
+    if q and q.strip():
+        conditions.append(documents.c.title.ilike(f"%{q.strip()}%"))
     stmt = (
         select(documents)
-        .where(documents.c.user_id == user_id, documents.c.deleted_at.is_(None))
+        .where(*conditions)
         .order_by(documents.c.created_at.desc())
         .limit(limit)
         .offset(offset)
@@ -71,13 +75,17 @@ def list_for_user(
     return rows_to_dicts(conn.execute(stmt))
 
 
-def count_for_user(conn: Connection, user_id: str) -> int:
+def count_for_user(conn: Connection, user_id: str, q: Optional[str] = None) -> int:
+    conditions = [documents.c.user_id == user_id, documents.c.deleted_at.is_(None)]
+    if q and q.strip():
+        conditions.append(documents.c.title.ilike(f"%{q.strip()}%"))
     stmt = (
         select(func.count())
         .select_from(documents)
-        .where(documents.c.user_id == user_id, documents.c.deleted_at.is_(None))
+        .where(*conditions)
     )
     return int(conn.execute(stmt).scalar_one())
+
 
 
 def recent_for_user(conn: Connection, user_id: str, limit: int = 5) -> list[dict[str, Any]]:

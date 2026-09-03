@@ -57,6 +57,7 @@ def _build_auth_response(conn: Connection, session: supabase_auth.AuthSession) -
             id=str(user_id),
             email=profile.get("email") or email,
             name=profile.get("name") or meta_name,
+            avatar_url=profile.get("avatar_url"),
             subscription=profile.get("subscription") or "free",
         ),
     )
@@ -106,5 +107,24 @@ def current_user(conn: Connection, principal: AuthPrincipal) -> AuthUser:
         id=principal.id,
         email=profile.get("email") or principal.email,
         name=profile.get("name"),
+        avatar_url=profile.get("avatar_url"),
         subscription=profile.get("subscription") or "free",
     )
+
+
+def google_auth_url(redirect_to: Optional[str] = None) -> dict[str, str]:
+    url = supabase_auth.get_google_oauth_url(redirect_to=redirect_to)
+    return {"url": url}
+
+
+def login_google(conn: Connection, req: GoogleAuthRequest) -> AuthResponse:
+    if not req.id_token and not req.access_token:
+        raise BadRequestError("Google auth requires idToken or accessToken.")
+    
+    token = req.id_token or req.access_token or ""
+    session = supabase_auth.sign_in_with_id_token(id_token=token, provider="google")
+    response = _build_auth_response(conn, session)
+    audit_repo.log_auth_event(conn, user_id=response.user.id, action="login")
+    return response
+
+

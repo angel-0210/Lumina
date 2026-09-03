@@ -149,24 +149,41 @@ def embed_query(query: str, *, dim: Optional[int] = None) -> list[float]:
 class ImageResult:
     image_bytes: bytes
     mime_type: str = "image/png"
+
+
 def generate_image(
     prompt: str,
     *,
     aspect_ratio: str = "1:1",
     model: Optional[str] = None,
 ) -> ImageResult:
-    """Generate an image using Gemini's multimodal `generateContent` endpoint.
-
-    The Gemini image model (default from settings) returns the image as inlineBase64 data.
-    The function decodes the data and returns an ``ImageResult`` containing the raw bytes
-    and MIME type.
-    """
+    """Generate an image using Gemini's generateContent or Imagen predict endpoints."""
     api_key = _require_key()
     model = model or settings.gemini_image_model
-    # Validate prompt
     if not prompt or not prompt.strip():
-        raise ProviderError("Image generation requires a non‑empty prompt.")
-    # Use the generateContent endpoint for image generation.
+        raise ProviderError("Image generation requires a non-empty prompt.")
+
+    # 1. If model is an Imagen model (e.g. imagen-3.0-...) use :predict
+    if "imagen" in model.lower():
+        url = f"{_BASE_URL}/models/{model}:predict"
+        body = {
+            "instances": [{"prompt": prompt}],
+            "parameters": {"sampleCount": 1, "aspectRatio": aspect_ratio},
+        }
+        try:
+            with httpx.Client(timeout=_IMAGE_TIMEOUT) as client:
+                resp = client.post(url, headers=_headers(api_key), json=body)
+            if resp.status_code == 200:
+                data = resp.json()
+                predictions = data.get("predictions") or []
+                if predictions and "bytesBase64Encoded" in predictions[0]:
+                    b64 = predictions[0]["bytesBase64Encoded"]
+                    mime = predictions[0].get("mimeType") or "image/png"
+                    return ImageResult(image_bytes=base64.b64decode(b64), mime_type=mime)
+        except Exception as exc:
+            logger.warning("imagen predict attempt failed, falling back: %s", exc)
+
+    # 2. Try :generateContent with multimodal prompt
     url = f"{_BASE_URL}/models/{model}:generateContent"
     body = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -176,6 +193,7 @@ def generate_image(
         },
     }
 
+
     try:
         with httpx.Client(timeout=_IMAGE_TIMEOUT) as client:
             resp = client.post(url, headers=_headers(api_key), json=body)
@@ -184,39 +202,54 @@ def generate_image(
         raise ServiceUnavailableError("Unable to reach the image service.") from exc
 
     if resp.status_code >= 400:
-        # Extract detailed error information if available
+        # Fallback to imagen-3.0-generate-002 predict if primary model failed
+        fallback_url = f"{_BASE_URL}/models/imagen-3.0-generate-002:predict"
+        fallback_body = {
+            "instances": [{"prompt": prompt}],
+            "parameters": {"sampleCount": 1, "aspectRatio": aspect_ratio},
+        }
+        try:
+            with httpx.Client(timeout=_IMAGE_TIMEOUT) as client:
+                f_resp = client.post(fallback_url, headers=_headers(api_key), json=fallback_body)
+            if f_resp.status_code == 200:
+                f_data = f_resp.json()
+                preds = f_data.get("predictions") or []
+                if preds and "bytesBase64Encoded" in preds[0]:
+                    b64 = preds[0]["bytesBase64Encoded"]
+                    mime = preds[0].get("mimeType") or "image/png"
+                    return ImageResult(image_bytes=base64.b64decode(b64), mime_type=mime)
+        except Exception:
+            pass
+
         try:
             err = resp.json().get("error", {})
-            code = err.get("code")
-            status = err.get("status")
-            message = err.get("message")
-            detail = f"code={code}, status={status}, message={message}" if any([code, status, message]) else resp.text
+            message = err.get("message") or resp.text
         except Exception:
-            detail = resp.text
-        logger.warning(
-            "gemini image generate returned %s: %s", resp.status_code, detail
-        )
-        raise ProviderError(
-            f"Gemini image generation failed with HTTP status {resp.status_code}: {detail}"
-        )
+            message = resp.text
+        logger.warning("gemini image generate returned %s: %s", resp.status_code, message)
+        raise ProviderError(f"Image generation failed with HTTP status {resp.status_code}: {message}")
 
     data = resp.json()
     candidates = data.get("candidates") or []
     if not candidates:
         raise ProviderError("Gemini image service returned no candidates.")
-    # Look for inlineData containing the image.
+
     parts = (candidates[0].get("content") or {}).get("parts") or []
     inline = next((p.get("inlineData") for p in parts if p.get("inlineData")), None)
     if not inline:
         raise ProviderError("Gemini image service returned no inline image data.")
+
     b64 = inline.get("data")
     mime_type = inline.get("mimeType") or "image/png"
     if not b64:
         raise ProviderError("Gemini image service returned empty image data.")
+
     try:
         raw = base64.b64decode(b64)
     except (ValueError, TypeError) as exc:
         raise ProviderError("Gemini image service returned malformed image data.") from exc
+
     return ImageResult(image_bytes=raw, mime_type=mime_type)
+
 
 

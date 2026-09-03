@@ -182,6 +182,7 @@ export interface AuthUser {
   id: string;
   email: string | null;
   name: string | null;
+  avatar_url?: string | null;
   subscription: string;
 }
 
@@ -200,6 +201,12 @@ export const authApi = {
   login: (email: string, password: string): Promise<AuthResponse> =>
     client.post('/auth/login', { email, password }).then((r) => r.data),
 
+  getGoogleUrl: (redirectTo?: string): Promise<{ url: string }> =>
+    client.get('/auth/google/url', { params: { redirectTo } }).then((r) => r.data),
+
+  loginGoogle: (idToken?: string, accessToken?: string): Promise<AuthResponse> =>
+    client.post('/auth/google', { idToken, accessToken }).then((r) => r.data),
+
   refresh: (refreshToken: string): Promise<AuthResponse> =>
     client.post('/auth/refresh', { refreshToken }).then((r) => r.data),
 
@@ -209,6 +216,7 @@ export const authApi = {
   me: (): Promise<AuthUser> =>
     client.get('/auth/me').then((r) => r.data),
 };
+
 
 // ─── Documents ───────────────────────────────────────────────────────────────
 
@@ -475,6 +483,7 @@ export interface UserProfile {
   id: string;
   name: string | null;
   email: string | null;
+  avatar_url?: string | null;
   subscription: string;
   created_at?: string;
   updated_at?: string;
@@ -485,7 +494,21 @@ export const profileApi = {
     client.get('/profile').then((r) => r.data),
   update: (name: string): Promise<UserProfile> =>
     client.patch('/profile', { name }).then((r) => r.data),
+  uploadAvatar: (fileUri: string | File, filename = 'avatar.jpg', mimeType = 'image/jpeg'): Promise<UserProfile> => {
+    const form = new FormData();
+    if (Platform.OS === 'web' && fileUri instanceof File) {
+      form.append('file', fileUri);
+    } else {
+      form.append('file', { uri: fileUri as string, name: filename, type: mimeType } as unknown as Blob);
+    }
+    return client
+      .post('/profile/avatar', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+      .then((r) => r.data);
+  },
+  deleteAvatar: (): Promise<UserProfile> =>
+    client.delete('/profile/avatar').then((r) => r.data),
 };
+
 
 // ─── Explore ─────────────────────────────────────────────────────────────────
 
@@ -645,5 +668,66 @@ export const mediaApi = {
     client.get(`/jobs/${jobId}`).then((r) => r.data),
 };
 
+// ─── Global Search ────────────────────────────────────────────────────────────
+
+export interface SearchResultItem {
+  id: string;
+  title?: string;
+  name?: string;
+  description?: string;
+  file_type?: string;
+  document_id?: string;
+  document_title?: string;
+  content?: string;
+  score?: number;
+}
+
+export interface SearchResponse {
+  documents: SearchResultItem[];
+  topics: SearchResultItem[];
+  concepts: SearchResultItem[];
+  chunks: SearchResultItem[];
+  total_matches: number;
+}
+
+export const searchApi = {
+  query: (q: string, limit = 20): Promise<SearchResponse> =>
+    client.get('/search', { params: { q, limit } }).then((r) => r.data),
+};
+
+// ─── Subscriptions ───────────────────────────────────────────────────────────
+
+export interface SubscriptionStatus {
+  user_id: string;
+  subscription: string;
+  is_pro: boolean;
+  tier_details: {
+    tier: string;
+    name: string;
+    max_upload_mb: number;
+    ai_rate_limit_per_min: number;
+    features: string[];
+  };
+}
+
+export const subscriptionApi = {
+  getStatus: (): Promise<SubscriptionStatus> =>
+    client.get('/subscription/status').then((r) => r.data),
+
+  upgrade: (tier = 'pro'): Promise<UserProfile> =>
+    client.post('/subscription/upgrade', { tier }).then((r) => r.data),
+};
+
+// ─── Push Notifications ──────────────────────────────────────────────────────
+
+export const notificationsApi = {
+  registerToken: (token: string, platform = 'android'): Promise<{ registered: boolean }> =>
+    client.post('/notifications/tokens', { token, platform }).then((r) => r.data),
+
+  unregisterToken: (token: string): Promise<{ unregistered: boolean }> =>
+    client.delete('/notifications/tokens', { data: { token } }).then((r) => r.data),
+};
+
 export default client;
+
 

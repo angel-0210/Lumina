@@ -9,7 +9,8 @@ budget. Every read/delete is scoped to the caller by the service layer.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, UploadFile, status
+from typing import Optional
+from fastapi import APIRouter, File, Query, UploadFile, status
 
 from app.api.deps import AiUser, CurrentUser, DbConn, Pagination
 from app.core.responses import paginated, success
@@ -19,12 +20,13 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 
 @router.get("")
-def list_documents(principal: CurrentUser, conn: DbConn, page: Pagination):
-    """List the caller's documents (most recent first), paginated."""
+def list_documents(principal: CurrentUser, conn: DbConn, page: Pagination, q: Optional[str] = Query(default=None)):
+    """List the caller's documents (most recent first), paginated, with optional search filtering."""
     items, total = document_service.list_documents(
-        conn, principal, limit=page.limit, offset=page.offset
+        conn, principal, limit=page.limit, offset=page.offset, q=q
     )
     return paginated(items, page=page.page, page_size=page.page_size, total=total)
+
 
 
 @router.post("", status_code=status.HTTP_202_ACCEPTED)

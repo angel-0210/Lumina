@@ -2,10 +2,11 @@ import { useFonts } from 'expo-font';
 import { Stack, usePathname, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { Platform, View, ActivityIndicator } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { useAppStore, restoreAuth } from '../store';
-import { authApi, apiErrorMessage } from '../services/api';
+import { authApi, notificationsApi, apiErrorMessage } from '../services/api';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 
 // Prevent splash screen auto-hiding until session restore is done.
@@ -20,9 +21,30 @@ export default function RootLayout() {
     if (error) throw error;
   }, [error]);
 
+  const accessToken = useAppStore((s) => s.accessToken);
   const setAuth = useAppStore((s) => s.setAuth);
   const clearAuth = useAppStore((s) => s.clearAuth);
   const setSessionRestored = useAppStore((s) => s.setSessionRestored);
+
+  // Register push notifications token when authenticated on native mobile
+  useEffect(() => {
+    if (Platform.OS !== 'web' && accessToken) {
+      (async () => {
+        try {
+          const { status } = await Notifications.requestPermissionsAsync();
+          if (status === 'granted') {
+            const tokenData = await Notifications.getExpoPushTokenAsync();
+            if (tokenData?.data) {
+              await notificationsApi.registerToken(tokenData.data, Platform.OS);
+            }
+          }
+        } catch {
+          // Push notification registration is optional/best-effort
+        }
+      })();
+    }
+  }, [accessToken]);
+
 
   // On first mount: attempt to restore the previous session from AsyncStorage.
   // If the stored access token is still valid, pre-populate the store.

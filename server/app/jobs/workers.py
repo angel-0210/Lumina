@@ -55,6 +55,8 @@ from app.repositories import (
     media_repo,
     topic_repo,
 )
+from app.services import notification_service
+
 
 logger = get_logger(__name__)
 
@@ -159,7 +161,18 @@ def ingest_document_job(
                 ai_job = ai_job_repo.create(
                     conn, learning_session_id=session["id"], job_type="scene_generation", status="pending"
                 )
-                jobs_to_submit.append((session["id"], ai_job["id"], topic_data.title))
+                # Send push notification for completed ingestion
+                try:
+                    notification_service.send_push_notification(
+                        conn,
+                        user_id=ctx.user_id,
+                        title="Document Ready!",
+                        body="Your study material processing is complete. New study topics have been generated.",
+                        data={"document_id": document_id, "type": "document_ready"},
+                    )
+                except Exception:
+                    pass
+
 
     except AppError as exc:
         _fail_ingestion(db_job_id, document_id, exc.message)
@@ -320,6 +333,16 @@ def generate_image_job(
             bytes=uploaded.bytes,
             prompt=prompt,
         )
+        try:
+            notification_service.send_push_notification(
+                conn,
+                user_id=ctx.user_id,
+                title="AI Image Ready!",
+                body="Your requested AI visual illustration has been generated.",
+                data={"asset_id": str(row.get("id")), "type": "media_ready"},
+            )
+        except Exception:
+            pass
 
     ctx.set_result(_asset_result(row))
     ctx.progress(100, "Image ready")
@@ -372,9 +395,21 @@ def generate_video_job(
             prompt=prompt,
         )
 
+        try:
+            notification_service.send_push_notification(
+                conn,
+                user_id=ctx.user_id,
+                title="AI Video Animation Ready!",
+                body="Your requested VEO video animation is ready in your lesson player.",
+                data={"asset_id": str(row.get("id")), "type": "media_ready"},
+            )
+        except Exception:
+            pass
+
     ctx.set_result(_asset_result(row))
     ctx.progress(100, "Video ready")
     logger.info("generated video asset %s", row.get("id"))
+
 
 
 # --------------------------------------------------------------------------- #

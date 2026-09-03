@@ -95,11 +95,26 @@ profiles = Table(
     Column("id", UUID(as_uuid=True), primary_key=True),
     Column("name", Text),
     Column("email", Text),
+    Column("avatar_url", Text),
+    Column("avatar_public_id", Text),
     Column("subscription", subscription_tier, nullable=False, server_default=text("'free'")),
     _created_at(),
     _updated_at(),
     Column("deleted_at", TIMESTAMP(timezone=True)),
 )
+
+device_tokens = Table(
+    "device_tokens",
+    metadata,
+    _uuid_pk(),
+    Column("user_id", UUID(as_uuid=True), nullable=False),
+    Column("token", Text, nullable=False),
+    Column("platform", Text, nullable=False, server_default=text("'android'")),
+    _created_at(),
+    _updated_at(),
+    UniqueConstraint("user_id", "token", name="device_token_unique"),
+)
+
 
 documents = Table(
     "documents",

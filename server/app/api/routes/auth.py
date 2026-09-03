@@ -8,11 +8,12 @@ Supabase GoTrue by the service layer.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from typing import Optional
+from fastapi import APIRouter, Depends, Query, status
 
 from app.api.deps import DbConn, RawUser, rate_limit_auth
 from app.core.responses import success
-from app.schemas.auth import LoginRequest, RefreshRequest, SignupRequest
+from app.schemas.auth import GoogleAuthRequest, LoginRequest, RefreshRequest, SignupRequest
 from app.services import auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -28,6 +29,18 @@ def signup(req: SignupRequest, conn: DbConn):
 def login(req: LoginRequest, conn: DbConn):
     """Exchange email + password for an access/refresh token pair."""
     return success(auth_service.login(conn, req))
+
+
+@router.get("/google/url", dependencies=[Depends(rate_limit_auth)])
+def get_google_auth_url(redirect_to: Optional[str] = Query(default=None, alias="redirectTo")):
+    """Get the Google OAuth authorization URL."""
+    return success(auth_service.google_auth_url(redirect_to=redirect_to))
+
+
+@router.post("/google", dependencies=[Depends(rate_limit_auth)])
+def login_google(req: GoogleAuthRequest, conn: DbConn):
+    """Exchange Google OAuth ID token for an authenticated Lumina session."""
+    return success(auth_service.login_google(conn, req))
 
 
 @router.post("/refresh", dependencies=[Depends(rate_limit_auth)])
@@ -46,3 +59,4 @@ def logout(principal: RawUser, conn: DbConn):
 def me(principal: RawUser, conn: DbConn):
     """Return the authenticated user's identity + subscription."""
     return success(auth_service.current_user(conn, principal))
+

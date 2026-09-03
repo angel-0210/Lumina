@@ -138,3 +138,24 @@ def sign_out(*, access_token: str) -> None:
     except ServiceUnavailableError:
         # Logout is best-effort; the client discards tokens regardless.
         pass
+
+
+def get_google_oauth_url(redirect_to: Optional[str] = None) -> str:
+    """Generate the Supabase Auth Google OAuth authorization URL."""
+    base = _base_url() + "/authorize?provider=google"
+    if redirect_to:
+        import urllib.parse
+        base += f"&redirect_to={urllib.parse.quote(redirect_to)}"
+    return base
+
+
+def sign_in_with_id_token(*, id_token: str, provider: str = "google") -> AuthSession:
+    """Exchange an ID token (from Google Sign-In) for a Supabase session."""
+    resp = _post("/token?grant_type=id_token", json={"provider": provider, "id_token": id_token})
+    if resp.status_code in (400, 401):
+        raise UnauthorizedError("Invalid or expired OAuth token.")
+    if resp.status_code >= 400:
+        logger.warning("gotrue id_token login returned %s", resp.status_code)
+        raise ServiceUnavailableError("Could not sign in with Google right now.")
+    return _session_from_payload(resp.json())
+

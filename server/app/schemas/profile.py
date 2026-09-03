@@ -14,9 +14,11 @@ class Profile(Schema):
     id: str
     name: Optional[str] = None
     email: Optional[str] = None
+    avatar_url: Optional[str] = None
     subscription: str = "free"
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
 
 
 class ProfileUpdate(Schema):

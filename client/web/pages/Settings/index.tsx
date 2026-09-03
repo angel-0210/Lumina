@@ -6,13 +6,16 @@ import {
   TouchableOpacity,
   ScrollView,
   TextInput,
-  ActivityIndicator
+  ActivityIndicator,
+  Image,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAppStore } from '../../../store';
 import { profileApi, apiErrorMessage } from '../../../services/api';
 import WebLayout from '../../layouts/WebLayout';
+import ProUpgradeModal from '../../../components/ProUpgradeModal';
 
 export default function WebSettings() {
   const user = useAppStore((state) => state.user);
@@ -23,10 +26,13 @@ export default function WebSettings() {
 
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(user?.avatar_url || user?.avatarUrl || null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [proModalVisible, setProModalVisible] = useState(false);
 
   // Preference states
   const [emailNotifs, setEmailNotifs] = useState(true);
@@ -40,6 +46,7 @@ export default function WebSettings() {
       const data = await profileApi.get();
       setName(data.name || '');
       setEmail(data.email || '');
+      setAvatarUrl(data.avatar_url || null);
     } catch (err) {
       setErrorMsg(apiErrorMessage(err, 'We couldn\'t load your profile. Please try again.'));
     } finally {
@@ -62,13 +69,13 @@ export default function WebSettings() {
       setSuccessMsg(null);
       const updated = await profileApi.update(name.trim());
       
-      // Update Zustand auth store state
       if (accessToken && user) {
         setAuth(accessToken, refreshToken, {
           ...user,
           name: updated.name,
           email: updated.email,
-          subscription: updated.subscription
+          avatar_url: updated.avatar_url,
+          subscription: updated.subscription,
         });
       }
       setSuccessMsg('Profile updates saved successfully.');
@@ -79,10 +86,67 @@ export default function WebSettings() {
     }
   };
 
+  const handlePickAvatar = () => {
+    if (Platform.OS === 'web') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/jpeg,image/png,image/webp,image/gif';
+      input.onchange = async (e: any) => {
+        const file = e.target.files[0];
+        if (file) {
+          if (file.size > 5 * 1024 * 1024) {
+            setErrorMsg('Avatar image size exceeds maximum 5MB limit.');
+            return;
+          }
+          try {
+            setUploadingAvatar(true);
+            setErrorMsg(null);
+            const updated = await profileApi.uploadAvatar(file, file.name, file.type);
+            setAvatarUrl(updated.avatar_url || null);
+            if (accessToken && user) {
+              setAuth(accessToken, refreshToken, {
+                ...user,
+                avatar_url: updated.avatar_url,
+              });
+            }
+            setSuccessMsg('Profile photo updated.');
+          } catch (err) {
+            setErrorMsg(apiErrorMessage(err, 'Failed to upload profile photo.'));
+          } finally {
+            setUploadingAvatar(false);
+          }
+        }
+      };
+      input.click();
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    try {
+      setUploadingAvatar(true);
+      setErrorMsg(null);
+      const updated = await profileApi.deleteAvatar();
+      setAvatarUrl(null);
+      if (accessToken && user) {
+        setAuth(accessToken, refreshToken, {
+          ...user,
+          avatar_url: null,
+        });
+      }
+      setSuccessMsg('Profile photo removed.');
+    } catch (err) {
+      setErrorMsg(apiErrorMessage(err, 'Failed to remove profile photo.'));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const handleLogout = () => {
     clearAuth();
     router.replace('/login');
   };
+
+  const userInitials = (name || email || 'L').slice(0, 2).toUpperCase();
 
   if (loading) {
     return (
@@ -106,10 +170,8 @@ export default function WebSettings() {
         </View>
 
         <View style={styles.grid}>
-          
           {/* Left Column: Profile & Security */}
           <View style={styles.leftCol}>
-            
             {/* Profile Info */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Profile Information</Text>
@@ -124,6 +186,36 @@ export default function WebSettings() {
                   <Text style={styles.successText}>{successMsg}</Text>
                 </View>
               )}
+
+              {/* Avatar Section */}
+              <View style={styles.avatarSection}>
+                <View style={styles.avatarBox}>
+                  {avatarUrl ? (
+                    <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
+                  ) : (
+                    <View style={styles.avatarFallback}>
+                      <Text style={styles.avatarInitials}>{userInitials}</Text>
+                    </View>
+                  )}
+                  {uploadingAvatar && (
+                    <View style={styles.avatarLoadingOverlay}>
+                      <ActivityIndicator size="small" color="#dfb7ff" />
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.avatarActions}>
+                  <TouchableOpacity style={styles.avatarBtn} onPress={handlePickAvatar} disabled={uploadingAvatar}>
+                    <Ionicons name="camera-outline" size={14} color="#dfb7ff" />
+                    <Text style={styles.avatarBtnText}>Change Photo</Text>
+                  </TouchableOpacity>
+                  {avatarUrl && (
+                    <TouchableOpacity style={styles.removeAvatarBtn} onPress={handleRemoveAvatar} disabled={uploadingAvatar}>
+                      <Text style={styles.removeAvatarText}>Remove</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
               
               <View style={styles.field}>
                 <Text style={styles.label}>Full Name</Text>
@@ -143,7 +235,7 @@ export default function WebSettings() {
                   value={email}
                   editable={false}
                 />
-                <Text style={styles.fieldHelp}>Email address cannot be changed in autonomous workspaces.</Text>
+                <Text style={styles.fieldHelp}>Email address is managed by identity provider.</Text>
               </View>
 
               <TouchableOpacity 
@@ -174,12 +266,10 @@ export default function WebSettings() {
                 <Text style={styles.outlineActionText}>Request Password Reset</Text>
               </TouchableOpacity>
             </View>
-
           </View>
 
           {/* Right Column: Subscription & Preferences */}
           <View style={styles.rightCol}>
-            
             {/* Subscription Card */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Lumina Membership</Text>
@@ -190,14 +280,14 @@ export default function WebSettings() {
 
               <Text style={styles.tierDesc}>
                 {user?.subscription === 'pro' || user?.subscription === 'enterprise'
-                  ? 'Thank you for supporting Lumina. You have unlimited AI generation and Crucible assessment sessions.'
-                  : 'Free membership includes 5 document uploads and 2 Crucible assessment cycles per day.'}
+                  ? 'Thank you for supporting Lumina. You have full access to VEO video animations, Imagen illustrations, and expanded document processing.'
+                  : 'Free membership includes 50MB uploads and standard RAG processing.'}
               </Text>
 
               {(!user?.subscription || user.subscription === 'free') && (
                 <TouchableOpacity
                   style={styles.upgradeBtn}
-                  onPress={() => alert('Subscription management module loading...')}
+                  onPress={() => setProModalVisible(true)}
                 >
                   <Ionicons name="sparkles" size={14} color="#131313" />
                   <Text style={styles.upgradeBtnText}>Upgrade to Pro</Text>
@@ -212,8 +302,8 @@ export default function WebSettings() {
               <View style={styles.prefList}>
                 <View style={styles.prefRow}>
                   <View style={styles.prefTextCol}>
-                    <Text style={styles.prefLabel}>Email Notifications</Text>
-                    <Text style={styles.prefDesc}>Receive summaries of your daily Crucible assessments.</Text>
+                    <Text style={styles.prefLabel}>Push & Processing Alerts</Text>
+                    <Text style={styles.prefDesc}>Receive push alerts when background RAG & media jobs complete.</Text>
                   </View>
                   <TouchableOpacity
                     style={[styles.switch, emailNotifs && styles.switchActive]}
@@ -256,11 +346,14 @@ export default function WebSettings() {
               <Ionicons name="log-out-outline" size={18} color="#ffb4ab" />
               <Text style={styles.logoutBtnText}>Log Out from Workspace</Text>
             </TouchableOpacity>
-
           </View>
-
         </View>
       </ScrollView>
+
+      <ProUpgradeModal
+        visible={proModalVisible}
+        onClose={() => setProModalVisible(false)}
+      />
     </WebLayout>
   );
 }
@@ -314,6 +407,72 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 16,
   },
+  avatarSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 20,
+    marginBottom: 24,
+  },
+  avatarBox: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(223, 183, 255, 0.3)',
+    position: 'relative',
+  },
+  avatarImg: {
+    width: '100%',
+    height: '100%',
+  },
+  avatarFallback: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#991bf7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    color: '#ffffff',
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  avatarLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarActions: {
+    gap: 8,
+  },
+  avatarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(153, 27, 247, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(153, 27, 247, 0.25)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    cursor: 'pointer' as any,
+  },
+  avatarBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#dfb7ff',
+  },
+  removeAvatarBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    cursor: 'pointer' as any,
+  },
+  removeAvatarText: {
+    fontSize: 11,
+    color: '#ffb4ab',
+  },
   field: {
     marginBottom: 20,
   },
@@ -343,19 +502,17 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   saveBtn: {
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    borderWidth: 1,
-    borderColor: 'rgba(245, 248, 255, 0.1)',
+    backgroundColor: '#dfb7ff',
     borderRadius: 8,
-    paddingVertical: 10,
+    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
     cursor: 'pointer' as any,
   },
   saveBtnText: {
-    color: '#e2e2e2',
+    color: '#131313',
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   outlineActionBtn: {
     flexDirection: 'row',

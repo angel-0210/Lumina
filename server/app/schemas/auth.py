@@ -45,13 +45,23 @@ class RefreshRequest(Schema):
     refresh_token: str = Field(..., alias="refreshToken")
 
 
+class GoogleAuthRequest(Schema):
+    id_token: Optional[str] = Field(default=None, alias="idToken")
+    access_token: Optional[str] = Field(default=None, alias="accessToken")
+    code: Optional[str] = None
+    redirect_uri: Optional[str] = Field(default=None, alias="redirectUri")
+
+
+
 class AuthUser(Schema):
     """The user object embedded in an auth response."""
 
     id: str
     email: Optional[str] = None
     name: Optional[str] = None
+    avatar_url: Optional[str] = None
     subscription: str = "free"
+
 
 
 class AuthResponse(Schema):

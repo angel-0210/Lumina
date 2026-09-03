@@ -41,7 +41,6 @@ def upsert(
 
 
 def update_profile(conn: Connection, user_id: str, **fields: Any) -> Optional[dict[str, Any]]:
-    fields = {k: v for k, v in fields.items() if v is not None}
     if not fields:
         return get(conn, user_id)
     stmt = (
@@ -51,3 +50,4 @@ def update_profile(conn: Connection, user_id: str, **fields: Any) -> Optional[di
         .returning(profiles)
     )
     return first_dict(conn.execute(stmt))
+

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -7,11 +7,15 @@ import {
   ScrollView,
   Platform,
   Image,
-  ActivityIndicator
+  ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { router, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppStore } from '../../store';
+import { searchApi, SearchResponse } from '../../services/api';
+import UploadModal from '../../components/UploadModal';
+import ProUpgradeModal from '../../components/ProUpgradeModal';
 
 interface WebLayoutProps {
   children: React.ReactNode;
@@ -23,13 +27,22 @@ export default function WebLayout({ children }: WebLayoutProps) {
   const accessToken = useAppStore((state) => state.accessToken);
   const sessionRestored = useAppStore((state) => state.sessionRestored);
   const clearAuth = useAppStore((state) => state.clearAuth);
-  
+
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
   const [hasRedirected, setHasRedirected] = useState(false);
 
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResponse | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Modal states
+  const [uploadModalVisible, setUploadModalVisible] = useState(false);
+  const [proModalVisible, setProModalVisible] = useState(false);
+
   // Wait for session restoration before redirecting.
-  // This ensures the auth state is fully initialized before making any authenticated API calls.
-  // Use a flag to prevent multiple redirects (circular loop guard).
   useEffect(() => {
     if (sessionRestored && !accessToken && !hasRedirected) {
       setHasRedirected(true);
@@ -37,8 +50,36 @@ export default function WebLayout({ children }: WebLayoutProps) {
     }
   }, [sessionRestored, accessToken, hasRedirected]);
 
-  // If session is not yet restored, show loading.
-  // Do NOT redirect until we know if there's a valid persisted session.
+  // Debounced search logic
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+
+    if (!searchQuery.trim()) {
+      setSearchResults(null);
+      setSearchLoading(false);
+      setShowSearchDropdown(false);
+      return;
+    }
+
+    setSearchLoading(true);
+    setShowSearchDropdown(true);
+
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await searchApi.query(searchQuery.trim());
+        setSearchResults(res);
+      } catch {
+        setSearchResults(null);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [searchQuery]);
+
   if (!sessionRestored) {
     return (
       <View style={{ flex: 1, backgroundColor: '#131313', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' as any }}>
@@ -48,8 +89,6 @@ export default function WebLayout({ children }: WebLayoutProps) {
     );
   }
 
-  // If session is restored but no access token, prevent rendering children until redirect completes.
-  // This guards against rendering authenticated content with null auth state.
   if (!accessToken) {
     return (
       <View style={{ flex: 1, backgroundColor: '#131313', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' as any }}>
@@ -58,7 +97,7 @@ export default function WebLayout({ children }: WebLayoutProps) {
       </View>
     );
   }
-  
+
   const navItems = [
     { label: 'Home', path: '/', icon: 'home-outline', iconActive: 'home' },
     { label: 'Library', path: '/documents', icon: 'document-text-outline', iconActive: 'document-text' },
@@ -73,9 +112,11 @@ export default function WebLayout({ children }: WebLayoutProps) {
     router.replace('/login');
   };
 
-  const displayName = user?.name || user?.email?.split('@')[0] || 'Alex';
+  const displayName = user?.name || user?.email?.split('@')[0] || 'Learner';
+  const userInitials = (displayName || 'L').slice(0, 2).toUpperCase();
+  const avatarUrl = user?.avatar_url || user?.avatarUrl;
+  const isPro = user?.subscription?.toLowerCase() === 'pro' || user?.subscription?.toLowerCase() === 'enterprise';
 
-  // Helper to determine if a route is active
   const isRouteActive = (path: string) => {
     if (path === '/') {
       return pathname === '/' || pathname === '/dashboard';
@@ -85,83 +126,27 @@ export default function WebLayout({ children }: WebLayoutProps) {
 
   return (
     <View style={styles.container}>
-      {/* Inject custom global CSS styles for animations and scrollbars */}
       <style>{`
-        @keyframes shimmer {
-          100% { left: 200%; }
-        }
-        .ai-shimmer-bg {
-          position: relative;
-          overflow: hidden;
-        }
-        .ai-shimmer-bg::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: -100%;
-          width: 50%;
-          height: 1px;
-          background: linear-gradient(90deg, transparent, rgba(181, 185, 240, 0.8), transparent);
-          animation: shimmer 2.5s infinite;
-        }
-        @keyframes pulse-glow {
-          0%, 100% { box-shadow: 0 0 0 1px rgba(181, 185, 240, 0.2), 0 0 15px rgba(181, 185, 240, 0.05); }
-          50% { box-shadow: 0 0 0 1px rgba(181, 185, 240, 0.5), 0 0 25px rgba(181, 185, 240, 0.15); }
-        }
-        .ai-pulse-glow {
-          box-shadow: 0 0 0 1px rgba(181, 185, 240, 0.3);
-          animation: pulse-glow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        body {
-          font-family: 'Inter', sans-serif !important;
-          background-color: #131313 !important;
-          margin: 0;
-          padding: 0;
-        }
-        html {
-          margin: 0;
-          padding: 0;
-          background-color: #131313 !important;
-        }
-        /* Custom scrollbar */
-        ::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-          background: #131313;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: #2a2a2a;
-          border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: #393939;
-        }
+        @keyframes shimmer { 100% { left: 200%; } }
+        body { font-family: 'Inter', sans-serif !important; background-color: #131313 !important; margin: 0; padding: 0; }
+        html { margin: 0; padding: 0; background-color: #131313 !important; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #131313; }
+        ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #393939; }
       `}</style>
-
-      {/* Font link injection */}
-      {Platform.OS === 'web' && (
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
-      )}
 
       {/* Web Sidebar */}
       <View style={styles.sidebar}>
-        {/* Brand Logo */}
         <View style={styles.logoContainer}>
           <Ionicons name="school" size={28} color="#dfb7ff" />
           <Text style={styles.logoText}>Lumina</Text>
         </View>
 
-        {/* Section Header */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionHeaderText}>LEARNING JOURNEY</Text>
         </View>
 
-        {/* Nav list */}
         <ScrollView style={styles.navList} showsVerticalScrollIndicator={false}>
           {navItems.map((item) => {
             const active = isRouteActive(item.path);
@@ -176,7 +161,7 @@ export default function WebLayout({ children }: WebLayoutProps) {
                 style={[
                   styles.navItem,
                   active && styles.navItemActive,
-                  !active && hovered && styles.navItemHovered
+                  !active && hovered && styles.navItemHovered,
                 ]}
                 activeOpacity={0.8}
               >
@@ -196,15 +181,19 @@ export default function WebLayout({ children }: WebLayoutProps) {
         </ScrollView>
 
         {/* User profile footer */}
-        <View style={styles.sidebarFooter}>
+        <TouchableOpacity
+          style={styles.sidebarFooter}
+          onPress={() => router.push('/settings')}
+          activeOpacity={0.8}
+        >
           <View style={styles.avatarWrapper}>
-            <Image
-              alt="User Profile"
-              style={styles.avatar}
-              source={{
-                uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBDxa40j0z6GPE7nCE64XEd7kjP7PkWAU5YhKwv7VsdjEfvwxAq-cwUCJYxzG06F0vN3xz-KbwAYpEcZS-nyRChjbMpiwdEkEvajBcLob_f2O4NCh6YpeLTL-ihXkrW5g1jcUTrj_-C-canA3gXzvEbTYm09GrFiNmq6eBYDbHDX3drX0KnKhwd3jIvcDoBf__kd20Abzi54YYEJoGhfuiX4vI6evQdadVydf8b3Vs40pSw-kz_TSPk',
-              }}
-            />
+            {avatarUrl ? (
+              <Image alt="User Profile" style={styles.avatar} source={{ uri: avatarUrl }} />
+            ) : (
+              <View style={styles.avatarFallback}>
+                <Text style={styles.avatarInitials}>{userInitials}</Text>
+              </View>
+            )}
           </View>
           <View style={styles.profileInfo}>
             <Text style={styles.profileName} numberOfLines={1}>{displayName}</Text>
@@ -212,27 +201,127 @@ export default function WebLayout({ children }: WebLayoutProps) {
               {(user?.subscription || 'Free').toUpperCase()} TIER
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.logoutButton}
-            onPress={handleLogout}
-          >
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
             <Ionicons name="log-out-outline" size={20} color="#6e748a" />
           </TouchableOpacity>
-        </View>
+        </TouchableOpacity>
       </View>
 
       {/* Main Content Area */}
       <View style={styles.mainContent}>
         {/* Header toolbar */}
         <View style={styles.header}>
-          <View style={styles.searchBar}>
-            <Ionicons name="search" size={16} color="#6e748a" />
-            <Text style={styles.searchText}>Search concepts, documents...</Text>
+          <View style={styles.searchWrapper}>
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={16} color="#6e748a" />
+              <TextInput
+                style={styles.searchInput as any}
+                placeholder="Search concepts, documents..."
+                placeholderTextColor="#6e748a"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                onFocus={() => searchQuery.trim() && setShowSearchDropdown(true)}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                  <Ionicons name="close-circle" size={16} color="#6e748a" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Live Search Dropdown */}
+            {showSearchDropdown && (
+              <View style={styles.searchDropdown}>
+                {searchLoading ? (
+                  <View style={styles.dropdownLoading}>
+                    <ActivityIndicator size="small" color="#dfb7ff" />
+                    <Text style={styles.dropdownLoadingText}>Searching Lumina knowledge base...</Text>
+                  </View>
+                ) : searchResults && searchResults.total_matches > 0 ? (
+                  <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                    {searchResults.documents.length > 0 && (
+                      <View style={styles.dropdownSection}>
+                        <Text style={styles.dropdownSectionTitle}>DOCUMENTS</Text>
+                        {searchResults.documents.map((doc) => (
+                          <TouchableOpacity
+                            key={doc.id}
+                            style={styles.dropdownItem}
+                            onPress={() => {
+                              setShowSearchDropdown(false);
+                              router.push(`/documents/${doc.id}`);
+                            }}
+                          >
+                            <Ionicons name="document-text-outline" size={16} color="#dfb7ff" />
+                            <Text style={styles.dropdownItemTitle} numberOfLines={1}>{doc.title}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+
+                    {searchResults.topics.length > 0 && (
+                      <View style={styles.dropdownSection}>
+                        <Text style={styles.dropdownSectionTitle}>TOPICS</Text>
+                        {searchResults.topics.map((top) => (
+                          <TouchableOpacity
+                            key={top.id}
+                            style={styles.dropdownItem}
+                            onPress={() => {
+                              setShowSearchDropdown(false);
+                              router.push(`/mastery/${top.id}`);
+                            }}
+                          >
+                            <Ionicons name="school-outline" size={16} color="#dfb7ff" />
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.dropdownItemTitle} numberOfLines={1}>{top.title}</Text>
+                              <Text style={styles.dropdownItemSub} numberOfLines={1}>{top.document_title}</Text>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+
+                    {searchResults.chunks.length > 0 && (
+                      <View style={styles.dropdownSection}>
+                        <Text style={styles.dropdownSectionTitle}>CONTENT MATCHES</Text>
+                        {searchResults.chunks.map((chk) => (
+                          <TouchableOpacity
+                            key={chk.id}
+                            style={styles.dropdownItem}
+                            onPress={() => {
+                              setShowSearchDropdown(false);
+                              router.push(`/documents/${chk.document_id}`);
+                            }}
+                          >
+                            <Ionicons name="text-outline" size={16} color="#a0a5c0" />
+                            <Text style={styles.dropdownItemSub} numberOfLines={2}>{chk.content}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </ScrollView>
+                ) : (
+                  <View style={styles.dropdownEmpty}>
+                    <Text style={styles.dropdownEmptyText}>No matching documents or topics found.</Text>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
+
           <View style={styles.toolbarActions}>
+            {!isPro && (
+              <TouchableOpacity
+                style={styles.proButton}
+                onPress={() => setProModalVisible(true)}
+              >
+                <Ionicons name="sparkles" size={14} color="#dfb7ff" />
+                <Text style={styles.proButtonText}>Upgrade to Pro</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={styles.uploadButton}
-              onPress={() => router.push('/documents')}
+              onPress={() => setUploadModalVisible(true)}
             >
               <Ionicons name="cloud-upload" size={16} color="#dfb7ff" />
               <Text style={styles.uploadButtonText}>Upload Material</Text>
@@ -241,10 +330,22 @@ export default function WebLayout({ children }: WebLayoutProps) {
         </View>
 
         {/* Page Content */}
-        <View style={styles.pageBody}>
-          {children}
-        </View>
+        <View style={styles.pageBody}>{children}</View>
       </View>
+
+      {/* Global Modals */}
+      <UploadModal
+        visible={uploadModalVisible}
+        onClose={() => setUploadModalVisible(false)}
+        onSuccess={() => {
+          setUploadModalVisible(false);
+          router.push('/documents');
+        }}
+      />
+      <ProUpgradeModal
+        visible={proModalVisible}
+        onClose={() => setProModalVisible(false)}
+      />
     </View>
   );
 }
@@ -355,6 +456,18 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  avatarFallback: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#991bf7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   profileInfo: {
     flex: 1,
     minWidth: 0,
@@ -400,19 +513,93 @@ const styles = StyleSheet.create({
     top: 0,
     zIndex: 90,
   },
+  searchWrapper: {
+    position: 'relative',
+    zIndex: 100,
+  },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#1b1b1b',
     borderWidth: 1,
-    borderColor: 'rgba(245, 248, 255, 0.06)',
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    width: 320,
-    gap: 8,
+    borderColor: 'rgba(245, 248, 255, 0.1)',
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    width: 360,
+    gap: 10,
   },
-  searchText: {
+  searchInput: {
+    flex: 1,
+    color: '#f0f2f8',
+    fontSize: 13,
+    outlineStyle: 'none',
+  },
+  searchDropdown: {
+    position: 'absolute',
+    top: 48,
+    left: 0,
+    right: 0,
+    backgroundColor: '#1b1b1b',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 248, 255, 0.15)',
+    borderRadius: 14,
+    maxHeight: 360,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    overflow: 'hidden',
+    zIndex: 200,
+  },
+  dropdownLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 10,
+  },
+  dropdownLoadingText: {
+    color: '#6e748a',
+    fontSize: 13,
+  },
+  dropdownScroll: {
+    padding: 12,
+  },
+  dropdownSection: {
+    marginBottom: 12,
+  },
+  dropdownSectionTitle: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6e748a',
+    letterSpacing: 1.2,
+    marginBottom: 6,
+    marginLeft: 6,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 8,
+    gap: 10,
+    marginBottom: 2,
+    cursor: 'pointer' as any,
+  },
+  dropdownItemTitle: {
+    color: '#f0f2f8',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  dropdownItemSub: {
+    color: '#6e748a',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  dropdownEmpty: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  dropdownEmptyText: {
     color: '#6e748a',
     fontSize: 13,
   },
@@ -420,6 +607,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  proButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(223, 183, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(223, 183, 255, 0.25)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    gap: 6,
+    cursor: 'pointer' as any,
+  },
+  proButtonText: {
+    color: '#dfb7ff',
+    fontSize: 13,
+    fontWeight: '700',
   },
   uploadButton: {
     flexDirection: 'row',
