@@ -61,7 +61,9 @@ jobs:
           mkdir -p release
           TAG="${{ github.ref_name }}"
           echo "Building production APK for tag $TAG..."
-          RAW_OUTPUT=$(eas build --platform android --profile production --non-interactive --json)
+          RAW_OUTPUT=$(eas build --platform android --profile production --non-interactive --json 2>&1) || true
+          echo "RAW EAS OUTPUT:"
+          echo "$RAW_OUTPUT"
           echo "$RAW_OUTPUT" > release/build_result.json
           
           # Safely extract applicationArchiveUrl from JSON output using python regex
