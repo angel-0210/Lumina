@@ -9,18 +9,12 @@
     },
     "preview": {
       "distribution": "internal",
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://lumina-backend-psdz.onrender.com"
-      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
       "distribution": "internal",
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://lumina-backend-psdz.onrender.com"
-      },
       "android": {
         "buildType": "apk"
       }

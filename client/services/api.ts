@@ -36,8 +36,8 @@ const getApiBaseUrl = (): string => {
     }
   }
 
-  // Production API URL fallback for standalone builds
-  return 'https://lumina-backend-psdz.onrender.com';
+  // Default fallback
+  return 'http://localhost:8000';
 };
 
 const BASE_URL = getApiBaseUrl();

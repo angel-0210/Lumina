@@ -57,6 +57,7 @@ jobs:
         id: build_apk
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
         run: |
           mkdir -p release
           TAG="${{ github.ref_name }}"
@@ -68,27 +69,28 @@ jobs:
           echo "=== EAS STDOUT JSON ==="
           cat release/build_result.json || true
           
-          # Safely extract applicationArchiveUrl or buildUrl from JSON output (dict or array)
-          APK_URL=$(python3 -c '
+          python3 - << 'EOF' > release/apk_url.txt
 import sys, json, re
-raw = sys.stdin.read()
-url = ""
-match = re.search(r"(\{.*\}|\[.*\])", raw, re.DOTALL)
-if match:
-    try:
+try:
+    with open("release/build_result.json", "r") as f:
+        raw = f.read()
+    url = ""
+    match = re.search(r"(\{.*\}|\[.*\])", raw, re.DOTALL)
+    if match:
         data = json.loads(match.group(0))
         if isinstance(data, list) and len(data) > 0:
             url = data[0].get("artifacts", {}).get("applicationArchiveUrl") or data[0].get("artifacts", {}).get("buildUrl", "")
         elif isinstance(data, dict):
             url = data.get("artifacts", {}).get("applicationArchiveUrl") or data.get("artifacts", {}).get("buildUrl", "")
-    except Exception:
-        pass
-if not url:
-    m = re.search(r"\"(?:applicationArchiveUrl|buildUrl)\"\s*:\s*\"(https://[^\"]+)\"", raw)
-    if m:
-        url = m.group(1)
-print(url or "")
-' < release/build_result.json)
+    if not url:
+        m = re.search(r"\"(?:applicationArchiveUrl|buildUrl)\"\s*:\s*\"(https://[^\"]+)\"", raw)
+        if m:
+            url = m.group(1)
+    print(url or "")
+except Exception:
+    print("")
+EOF
+          APK_URL=$(cat release/apk_url.txt)
           
           if [ -z "$APK_URL" ] || [ "$APK_URL" = "null" ]; then
             echo "Error: Could not retrieve APK download URL from EAS build output."
@@ -120,7 +122,9 @@ print(url or "")
 
       # Creates GitHub Release and uploads static web builds
       - name: Export Web Assets for Release
-        run: npx expo export
+        env:
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+        run: npx expo export -p web
 
       - name: Create Zip of Web Build
         run: zip -r lumina-web.zip dist/
