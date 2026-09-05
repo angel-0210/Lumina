@@ -61,11 +61,11 @@ jobs:
           mkdir -p release
           TAG="${{ github.ref_name }}"
           echo "Building production APK for tag $TAG..."
-          BUILD_JSON=$(eas build --platform android --profile production --non-interactive --json)
-          echo "$BUILD_JSON" > release/build_result.json
+          RAW_OUTPUT=$(eas build --platform android --profile production --non-interactive --json)
+          echo "$RAW_OUTPUT" > release/build_result.json
           
-          # Extract applicationArchiveUrl from JSON
-          APK_URL=$(echo "$BUILD_JSON" | jq -r '.[0].artifacts.applicationArchiveUrl')
+          # Safely extract applicationArchiveUrl from JSON output using python regex
+          APK_URL=$(python3 -c "import sys, json, re; raw=sys.stdin.read(); match=re.search(r'\[.*\]', raw, re.DOTALL); print(json.loads(match.group(0))[0]['artifacts']['applicationArchiveUrl']) if match else print('')" < release/build_result.json)
           
           if [ -z "$APK_URL" ] || [ "$APK_URL" = "null" ]; then
             echo "Error: Could not retrieve APK download URL from EAS build output."
