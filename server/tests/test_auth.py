@@ -97,3 +97,12 @@ def test_root_fallback_auth_routes(client, mock_supabase_auth):
     data = response.json()
     assert data["data"]["access_token"] == "mock_access_token"
 
+    # Test duplicate prefix fallback endpoint /api/v1/api/v1/auth/login
+    response2 = client.post("/api/v1/api/v1/auth/login", json={
+        "email": "fallback@lumina.ai",
+        "password": "validpassword"
+    })
+    assert response2.status_code == 200
+    data2 = response2.json()
+    assert data2["data"]["access_token"] == "mock_access_token"
+

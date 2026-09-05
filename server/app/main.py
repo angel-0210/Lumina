@@ -141,8 +141,10 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)  # /health, /health/ready at the root
     app.include_router(api_router, prefix=settings.api_v1_prefix)
-    # Root fallback mount for auth routes in case /api/v1 prefix is omitted by callers
+    # Fallback mounts for clients with omitted or duplicated /api/v1 prefix
     app.include_router(auth.router, include_in_schema=False)
+    if settings.api_v1_prefix:
+        app.include_router(api_router, prefix=f"{settings.api_v1_prefix}{settings.api_v1_prefix}", include_in_schema=False)
 
     return app
 
