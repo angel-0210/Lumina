@@ -16,7 +16,7 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "axios": "^1.19.0",
     "babel-preset-expo": "~54.0.10",
-    "expo": "~54.0.8",
+    "expo": "57",
     "expo-constants": "~18.0.14",
     "expo-document-picker": "~14.0.8",
     "expo-font": "~14.0.12",
