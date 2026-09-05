@@ -4,6 +4,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 import { Platform, View, ActivityIndicator } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { useAppStore, restoreAuth } from '../store';
 import { authApi, notificationsApi, apiErrorMessage } from '../services/api';
@@ -28,10 +29,12 @@ export default function RootLayout() {
 
   // Register push notifications token when authenticated on native mobile
   useEffect(() => {
-    if (Platform.OS !== 'web' && accessToken) {
+    // Remote notifications in expo-notifications were removed from Expo Go in SDK 53+.
+    // Only register push tokens in standalone / development builds.
+    const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
+    if (Platform.OS !== 'web' && accessToken && !isExpoGo) {
       (async () => {
         try {
-
           const { granted } = await Notifications.requestPermissionsAsync();
 
           if (granted) {
@@ -46,6 +49,7 @@ export default function RootLayout() {
       })();
     }
   }, [accessToken]);
+
 
 
   // On first mount: attempt to restore the previous session from AsyncStorage.
