@@ -1,11 +1,10 @@
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import { Stack, DarkTheme, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
-import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { useAppStore, restoreAuth } from '../store';
 import { authApi, notificationsApi } from '../services/api';
 import AppErrorBoundary from '../components/ErrorBoundary';
