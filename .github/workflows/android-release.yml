@@ -70,26 +70,26 @@ jobs:
           cat release/build_result.json || true
           
           python3 - << 'EOF' > release/apk_url.txt
-import sys, json, re
-try:
-    with open("release/build_result.json", "r") as f:
-        raw = f.read()
-    url = ""
-    match = re.search(r"(\{.*\}|\[.*\])", raw, re.DOTALL)
-    if match:
-        data = json.loads(match.group(0))
-        if isinstance(data, list) and len(data) > 0:
-            url = data[0].get("artifacts", {}).get("applicationArchiveUrl") or data[0].get("artifacts", {}).get("buildUrl", "")
-        elif isinstance(data, dict):
-            url = data.get("artifacts", {}).get("applicationArchiveUrl") or data.get("artifacts", {}).get("buildUrl", "")
-    if not url:
-        m = re.search(r"\"(?:applicationArchiveUrl|buildUrl)\"\s*:\s*\"(https://[^\"]+)\"", raw)
-        if m:
-            url = m.group(1)
-    print(url or "")
-except Exception:
-    print("")
-EOF
+          import sys, json, re
+          try:
+            with open("release/build_result.json", "r") as f:
+              raw = f.read()
+            url = ""
+            match = re.search(r"(\{.*\}|\[.*\])", raw, re.DOTALL)
+            if match:
+              data = json.loads(match.group(0))
+              if isinstance(data, list) and len(data) > 0:
+                url = data[0].get("artifacts", {}).get("applicationArchiveUrl") or data[0].get("artifacts", {}).get("buildUrl", "")
+              elif isinstance(data, dict):
+                url = data.get("artifacts", {}).get("applicationArchiveUrl") or data.get("artifacts", {}).get("buildUrl", "")
+            if not url:
+              m = re.search(r"\"(?:applicationArchiveUrl|buildUrl)\"\s*:\s*\"(https://[^\"]+)\"", raw)
+              if m:
+                url = m.group(1)
+            print(url or "")
+          except Exception:
+            print("")
+          EOF
           APK_URL=$(cat release/apk_url.txt)
           
           if [ -z "$APK_URL" ] || [ "$APK_URL" = "null" ]; then
