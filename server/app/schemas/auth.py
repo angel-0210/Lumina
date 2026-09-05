@@ -65,8 +65,10 @@ class AuthUser(Schema):
 
 
 class AuthResponse(Schema):
-    access_token: str
+    access_token: Optional[str] = ""
     token_type: str = "bearer"
     refresh_token: Optional[str] = None
     expires_in: Optional[int] = None
     user: AuthUser
+    requires_verification: bool = False
+    message: Optional[str] = None

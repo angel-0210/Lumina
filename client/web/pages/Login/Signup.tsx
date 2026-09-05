@@ -20,6 +20,9 @@ export default function WebSignup() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const [verificationSent, setVerificationSent] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
+
   // Validation errors
   const [nameError, setNameError] = useState('');
   const [emailError, setEmailError] = useState('');
@@ -59,8 +62,13 @@ export default function WebSignup() {
     try {
       setLoading(true);
       const session = await authApi.signup(fullName.trim(), email.trim().toLowerCase(), password);
-      setAuth(session.access_token, session.refresh_token ?? null, session.user);
-      router.replace('/');
+      if (session.requires_verification) {
+        setRegisteredEmail(email.trim().toLowerCase());
+        setVerificationSent(true);
+      } else if (session.access_token) {
+        setAuth(session.access_token, session.refresh_token ?? null, session.user);
+        router.replace('/');
+      }
     } catch (err) {
       setGeneralError(apiErrorMessage(err, 'Sign up failed. That email address may already be registered.'));
     } finally {
@@ -83,80 +91,104 @@ export default function WebSignup() {
           <Ionicons name="school" size={32} color="#dfb7ff" />
           <Text style={styles.logoText}>Lumina</Text>
         </View>
-        <Text style={styles.subtitle}>Create your scholarly workspace. AI models load immediately.</Text>
 
-        {/* General Error Banner */}
-        {generalError && (
-          <View style={styles.errorBanner}>
-            <Ionicons name="alert-circle-outline" size={18} color="#ffb4ab" />
-            <Text style={styles.errorBannerText}>{generalError}</Text>
+        {verificationSent ? (
+          <View style={styles.card}>
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <Ionicons name="mail-unread-outline" size={48} color="#dfb7ff" />
+            </View>
+            <Text style={[styles.logoText, { fontSize: 20, textAlign: 'center', marginBottom: 8 }]}>
+              Account Created Successfully!
+            </Text>
+            <Text style={[styles.subtitle, { marginBottom: 24 }]}>
+              We’ve sent a verification link to <Text style={{ color: '#dfb7ff', fontWeight: '600' }}>{registeredEmail}</Text>. Please verify your email before logging in.
+            </Text>
+            <TouchableOpacity
+              style={styles.submitBtn}
+              onPress={() => router.push('/login')}
+            >
+              <Text style={styles.submitBtnText}>Proceed to Login</Text>
+              <Ionicons name="arrow-forward" size={16} color="#131313" />
+            </TouchableOpacity>
           </View>
-        )}
+        ) : (
+          <>
+            <Text style={styles.subtitle}>Create your scholarly workspace. AI models load immediately.</Text>
 
-        {/* Card */}
-        <View style={styles.card}>
-          <View style={styles.field}>
-            <Text style={styles.label}>Full Name</Text>
-            <TextInput
-              style={[styles.input, nameError && styles.inputError]}
-              placeholder="Evelyn Initiate"
-              placeholderTextColor="#6e748a"
-              value={fullName}
-              onChangeText={setFullName}
-            />
-            {nameError && <Text style={styles.fieldError}>{nameError}</Text>}
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>Email Address</Text>
-            <TextInput
-              style={[styles.input, emailError && styles.inputError]}
-              placeholder="evelyn@lumina.ai"
-              placeholderTextColor="#6e748a"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            {emailError && <Text style={styles.fieldError}>{emailError}</Text>}
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>Password</Text>
-            <TextInput
-              style={[styles.input, passwordError && styles.inputError]}
-              placeholder="••••••••••••"
-              placeholderTextColor="#6e748a"
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-              autoCapitalize="none"
-            />
-            {passwordError && <Text style={styles.fieldError}>{passwordError}</Text>}
-          </View>
-
-          {/* Submit */}
-          <TouchableOpacity
-            style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
-            disabled={loading}
-            onPress={handleSignup}
-          >
-            {loading ? (
-              <ActivityIndicator color="#131313" size="small" />
-            ) : (
-              <>
-                <Text style={styles.submitBtnText}>Initialize Workspace</Text>
-                <Ionicons name="arrow-forward" size={16} color="#131313" />
-              </>
+            {/* General Error Banner */}
+            {generalError && (
+              <View style={styles.errorBanner}>
+                <Ionicons name="alert-circle-outline" size={18} color="#ffb4ab" />
+                <Text style={styles.errorBannerText}>{generalError}</Text>
+              </View>
             )}
-          </TouchableOpacity>
-        </View>
 
-        {/* Footer login shortcut */}
-        <TouchableOpacity style={styles.footerLink} onPress={() => router.push('/login')}>
-          <Text style={styles.footerLinkText}>Already registered? Login here</Text>
-          <Ionicons name="arrow-forward" size={14} color="#d1c1d7" style={styles.footerLinkIcon} />
-        </TouchableOpacity>
+            {/* Card */}
+            <View style={styles.card}>
+              <View style={styles.field}>
+                <Text style={styles.label}>Full Name</Text>
+                <TextInput
+                  style={[styles.input, nameError && styles.inputError]}
+                  placeholder="Evelyn Initiate"
+                  placeholderTextColor="#6e748a"
+                  value={fullName}
+                  onChangeText={setFullName}
+                />
+                {nameError && <Text style={styles.fieldError}>{nameError}</Text>}
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Email Address</Text>
+                <TextInput
+                  style={[styles.input, emailError && styles.inputError]}
+                  placeholder="evelyn@lumina.ai"
+                  placeholderTextColor="#6e748a"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                {emailError && <Text style={styles.fieldError}>{emailError}</Text>}
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Password</Text>
+                <TextInput
+                  style={[styles.input, passwordError && styles.inputError]}
+                  placeholder="••••••••••••"
+                  placeholderTextColor="#6e748a"
+                  secureTextEntry
+                  value={password}
+                  onChangeText={setPassword}
+                  autoCapitalize="none"
+                />
+                {passwordError && <Text style={styles.fieldError}>{passwordError}</Text>}
+              </View>
+
+              {/* Submit */}
+              <TouchableOpacity
+                style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+                disabled={loading}
+                onPress={handleSignup}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#131313" size="small" />
+                ) : (
+                  <>
+                    <Text style={styles.submitBtnText}>Initialize Workspace</Text>
+                    <Ionicons name="arrow-forward" size={16} color="#131313" />
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Footer login shortcut */}
+            <TouchableOpacity style={styles.footerLink} onPress={() => router.push('/login')}>
+              <Text style={styles.footerLinkText}>Already registered? Login here</Text>
+              <Ionicons name="arrow-forward" size={14} color="#d1c1d7" style={styles.footerLinkIcon} />
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     </View>
   );

@@ -68,15 +68,28 @@ def signup(conn: Connection, req: SignupRequest) -> AuthResponse:
         email=req.email, password=req.password, name=req.full_name
     )
     # When email confirmation is disabled, signup returns a session. When it is
-    # required, no token is issued — sign in to obtain one, and surface a clear
-    # message if the project requires confirmation first.
+    # required, no token is issued directly on signup.
     if not session.access_token:
         try:
             session = supabase_auth.sign_in(email=req.email, password=req.password)
         except Exception:
-            raise BadRequestError(
-                "Account created. Please confirm your email address, then sign in."
+            # Email confirmation is required by Supabase
+            user = session.user or {}
+            user_id = user.get("id") or user.get("sub")
+            if user_id:
+                profile_repo.upsert(conn, str(user_id), name=req.full_name, email=req.email)
+            return AuthResponse(
+                access_token="",
+                requires_verification=True,
+                message="Account created successfully! We've sent a verification email to your registered address. Please verify your email before logging in.",
+                user=AuthUser(
+                    id=str(user_id) if user_id else "",
+                    email=req.email,
+                    name=req.full_name,
+                    subscription="free",
+                ),
             )
+
     response = _build_auth_response(conn, session)
     audit_repo.log_auth_event(conn, user_id=response.user.id, action="login")
     return response

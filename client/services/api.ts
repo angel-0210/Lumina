@@ -204,6 +204,8 @@ export interface AuthResponse {
   expires_in: number | null;
   token_type: string;
   user: AuthUser;
+  requires_verification?: boolean;
+  message?: string | null;
 }
 
 export const authApi = {

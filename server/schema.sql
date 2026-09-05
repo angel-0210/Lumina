@@ -511,6 +511,12 @@ BEGIN
         END IF;
     END IF;
 
+    IF v_user_id IS NOT NULL THEN
+        IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = v_user_id) THEN
+            v_user_id := NULL;
+        END IF;
+    END IF;
+
     INSERT INTO public.audit_logs (user_id, action, entity_type, entity_id, old_state, new_state)
     VALUES (v_user_id, v_action, TG_TABLE_NAME, v_entity_id, v_old, v_new);
 

@@ -112,6 +112,9 @@ def sign_up(*, email: str, password: str, name: str) -> AuthSession:
 def sign_in(*, email: str, password: str) -> AuthSession:
     resp = _post("/token?grant_type=password", json={"email": email, "password": password})
     if resp.status_code in (400, 401):
+        msg = _error_message(resp)
+        if "confirm" in msg.lower() or "not confirmed" in msg.lower():
+            raise UnauthorizedError("Email not confirmed. Please check your inbox and verify your email before logging in.")
         raise UnauthorizedError("Invalid email or password.")
     if resp.status_code >= 400:
         logger.warning("gotrue login returned %s", resp.status_code)
