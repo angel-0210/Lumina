@@ -113,7 +113,7 @@ class Settings(BaseModel):
 
     # -- Gemini (text generation + embeddings) ------------------------------
     gemini_api_key: Optional[str] = None
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.6-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
     gemini_image_model: str = "gemini-3.1-flash-image"
     embedding_dim: int = 1536
@@ -256,7 +256,7 @@ def _build_settings() -> Settings:
         supabase_jwt_aud=_get("SUPABASE_JWT_AUD", "authenticated"),
         supabase_storage_bucket=_get("SUPABASE_STORAGE_BUCKET", "lumina-documents"),
         gemini_api_key=_get("GEMINI_API_KEY"),
-        gemini_model=_get("GEMINI_MODEL", "gemini-2.5-flash"),
+        gemini_model=_get("GEMINI_MODEL", "gemini-3.6-flash"),
         gemini_embedding_model=_get("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"),
         gemini_image_model=_get("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image"),
         embedding_dim=_get_int("EMBEDDING_DIM", 1536),

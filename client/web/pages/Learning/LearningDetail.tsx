@@ -43,7 +43,7 @@ export default function WebLessonPlayer() {
     try {
       const data = await learningApi.getLesson(id);
       setLesson(data);
-      if (data.scenes && data.scenes.length > 0) {
+      if ((data.scenes && data.scenes.length > 0) || data.status === 'failed') {
         if (pollRef.current) {
           clearInterval(pollRef.current);
           pollRef.current = null;
@@ -71,8 +71,15 @@ export default function WebLessonPlayer() {
     fetchLesson(true);
     fetchMedia();
 
+    let pollCount = 0;
+    const maxPolls = 15; // 60s max polling limit
+
     // Poll for scenes if not generated yet
     pollRef.current = setInterval(() => {
+      pollCount++;
+      if (pollCount >= maxPolls) {
+        if (pollRef.current) clearInterval(pollRef.current);
+      }
       fetchLesson(false);
     }, 4000);
 
@@ -165,6 +172,29 @@ export default function WebLessonPlayer() {
   }
 
   if (!lesson) return null;
+
+  if (lesson.status === 'failed') {
+    return (
+      <WebLayout>
+        <View style={styles.centerContainer}>
+          <Ionicons name="alert-circle-outline" size={48} color="#ffb4ab" />
+          <Text style={[styles.loadingText, { color: '#ffb4ab', marginTop: 12 }]}>
+            Slide Synthesis Failed
+          </Text>
+          <Text style={styles.loadingSub}>
+            Lumina AI could not complete scene generation for this lesson. Please try again.
+          </Text>
+          <TouchableOpacity
+            style={[styles.backButton, { marginTop: 20, backgroundColor: 'rgba(223, 183, 255, 0.1)', borderColor: '#dfb7ff' }]}
+            onPress={() => fetchLesson(true)}
+          >
+            <Ionicons name="refresh" size={16} color="#dfb7ff" />
+            <Text style={{ color: '#dfb7ff', fontWeight: '600', fontSize: 13 }}>Retry Slide Generation</Text>
+          </TouchableOpacity>
+        </View>
+      </WebLayout>
+    );
+  }
 
   if (!lesson.scenes || lesson.scenes.length === 0) {
     return (

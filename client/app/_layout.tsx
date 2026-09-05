@@ -53,6 +53,11 @@ export default function RootLayout() {
   // If it's expired, try the refresh token. If that fails, clear and force login.
   useEffect(() => {
     let cancelled = false;
+    // Fail-safe timer to prevent infinite loading if restoreAuth or network stalls
+    const timeoutTimer = setTimeout(() => {
+      if (!cancelled) setSessionRestored();
+    }, 5000);
+
     (async () => {
       try {
         const stored = await restoreAuth();
@@ -86,11 +91,15 @@ export default function RootLayout() {
       } catch (e) {
         console.error('Session restore error:', e);
         if (!cancelled) clearAuth();
+      } finally {
+        clearTimeout(timeoutTimer);
+        if (!cancelled) setSessionRestored();
       }
-
-      if (!cancelled) setSessionRestored();
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutTimer);
+    };
   }, []);
 
   useEffect(() => {

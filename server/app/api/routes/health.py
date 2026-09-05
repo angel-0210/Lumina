@@ -44,3 +44,26 @@ def readiness():
             },
         }
     )
+
+
+@router.get("/health/ai")
+def ai_health():
+    """Probe Gemini AI configuration and model reachability."""
+    if not settings.gemini_configured:
+        return success({"configured": False, "reachable": False, "model": settings.gemini_model, "error": "GEMINI_API_KEY missing"})
+    try:
+        from app.ai import gemini_provider
+        res = gemini_provider.generate_text(system_prompt="Ping", user_prompt="Pong", max_output_tokens=5)
+        return success({
+            "configured": True,
+            "reachable": True,
+            "model": settings.gemini_model,
+            "status": "operational" if res.text else "degraded",
+        })
+    except Exception as exc:
+        return success({
+            "configured": True,
+            "reachable": False,
+            "model": settings.gemini_model,
+            "error": str(exc),
+        })
