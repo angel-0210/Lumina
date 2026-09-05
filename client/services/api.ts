@@ -26,7 +26,7 @@ const getApiBaseUrl = (): string => {
   }
 
   // In Expo development, auto-detect host machine's LAN IP address from Metro server
-  if (Platform.OS !== 'web') {
+  if (Platform.OS !== 'web' && __DEV__) {
     const hostUri = Constants.expoConfig?.hostUri;
     if (hostUri) {
       const ip = hostUri.split(':')[0];
@@ -36,8 +36,8 @@ const getApiBaseUrl = (): string => {
     }
   }
 
-  // Default fallback
-  return 'http://localhost:8000';
+  // Production API URL fallback for standalone builds
+  return 'https://lumina-backend-psdz.onrender.com';
 };
 
 const BASE_URL = getApiBaseUrl();
