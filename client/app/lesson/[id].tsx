@@ -42,9 +42,11 @@ function MobileLessonPlayerScreen() {
   const [generatingSceneIndex, setGeneratingSceneIndex] = useState<number | null>(null);
   const [generatingKind, setGeneratingKind] = useState<'image' | 'video' | null>(null);
   const [generationProgress, setGenerationProgress] = useState<number>(0);
-  
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [retrying, setRetrying] = useState(false);
+  const [pollTimeout, setPollTimeout] = useState(false);
 
   const fetchLesson = async (showLoading = true) => {
     if (!id) return;
@@ -52,8 +54,8 @@ function MobileLessonPlayerScreen() {
     try {
       const data = await learningApi.getLesson(id);
       setLesson(data);
-      // If we have scenes, stop polling lesson generation.
-      if (data.scenes && data.scenes.length > 0) {
+      // If we have scenes or status is failed, stop polling.
+      if ((data.scenes && data.scenes.length > 0) || data.status === 'failed') {
         if (pollRef.current) {
           clearInterval(pollRef.current);
           pollRef.current = null;
@@ -64,6 +66,20 @@ function MobileLessonPlayerScreen() {
       router.back();
     } finally {
       if (showLoading) setLoading(false);
+    }
+  };
+
+  const handleRetry = async () => {
+    if (!id) return;
+    setRetrying(true);
+    setPollTimeout(false);
+    try {
+      await learningApi.retryLesson(id);
+      fetchLesson(true);
+    } catch (err) {
+      Alert.alert('Retry Failed', apiErrorMessage(err, 'Could not restart scene generation.'));
+    } finally {
+      setRetrying(false);
     }
   };
 
@@ -81,8 +97,19 @@ function MobileLessonPlayerScreen() {
     fetchLesson(true);
     fetchMedia();
 
+    let pollCount = 0;
+    const maxPolls = 15; // 60s max polling limit (15 * 4s)
+
     // Set up polling in case scenes are still generating
     pollRef.current = setInterval(() => {
+      pollCount++;
+      if (pollCount >= maxPolls) {
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+        setPollTimeout(true);
+      }
       fetchLesson(false);
     }, 4000);
 
@@ -182,6 +209,39 @@ function MobileLessonPlayerScreen() {
   }
 
   if (!lesson) return null;
+
+  // Handle explicit failure state or generation timeout
+  if (lesson.status === 'failed' || (pollTimeout && (!lesson.scenes || lesson.scenes.length === 0))) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <Stack.Screen options={{ title: 'Lesson Player', headerShown: false }} />
+        <View style={styles.loadingContainer}>
+          <Ionicons name="alert-circle-outline" size={48} color="#ffb4ab" />
+          <Text style={[styles.loadingText, { color: '#ffb4ab', marginTop: 12 }]}>
+            Unable to Create Lesson Scenes
+          </Text>
+          <Text style={styles.statusSubtext}>
+            Lumina AI could not complete scene generation for this topic right now. Please try again.
+          </Text>
+          <TouchableOpacity
+            style={[styles.navButton, { marginTop: 24, backgroundColor: 'rgba(223, 183, 255, 0.12)', borderColor: '#dfb7ff' }]}
+            onPress={handleRetry}
+            disabled={retrying}
+            activeOpacity={0.8}
+          >
+            {retrying ? (
+              <ActivityIndicator size="small" color="#dfb7ff" />
+            ) : (
+              <>
+                <Ionicons name="refresh" size={18} color="#dfb7ff" />
+                <Text style={{ color: '#dfb7ff', fontWeight: '700', fontSize: 14, marginLeft: 8 }}>Retry Scene Generation</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   // Handle case where lesson exists but scenes are still generating
   if (!lesson.scenes || lesson.scenes.length === 0) {

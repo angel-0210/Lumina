@@ -239,6 +239,20 @@ def generate_lesson(
         if doc_topics:
             focus_title = doc_topics[0].get("title") or ""
 
+    # Idempotency check: check if an active session with scenes already exists for this document & focus
+    existing_sessions = learning_repo.list_sessions(conn, principal.id, limit=10, offset=0, document_id=req.document_id)
+    target_title = (focus_title or doc.get("title") or "").strip().lower()
+    for s in existing_sessions:
+        s_title = (s.get("title") or "").strip().lower()
+        if s_title == target_title or not target_title:
+            scenes_count = learning_repo.count_scenes(conn, s["id"])
+            if scenes_count > 0:
+                logger.info("reusing existing session %s with %d scenes", s["id"], scenes_count)
+                return LessonGenerateResponse(
+                    lessonId=s["id"],
+                    job=JobRef(job_id=f"existing_{s['id']}", status="completed", kind=_JOB_KIND),
+                )
+
     session = learning_repo.create_session(
         conn, user_id=principal.id, document_id=req.document_id, title=focus_title or doc.get("title"), status="active"
     )
@@ -260,6 +274,41 @@ def generate_lesson(
     )
 
     logger.info("enqueued scene generation for session %s, job %s", session["id"], job_id)
+    return LessonGenerateResponse(
+        lessonId=session["id"],
+        job=JobRef(job_id=job_id, status="pending", kind=_JOB_KIND),
+    )
+
+
+def retry_lesson_generation(
+    conn: Connection, principal: AuthPrincipal, lesson_id: str
+) -> LessonGenerateResponse:
+    session = learning_repo.get_session(conn, lesson_id, principal.id)
+    if session is None:
+        raise NotFoundError("Lesson not found.")
+
+    doc = document_repo.get(conn, session["document_id"], principal.id)
+    if doc is None:
+        raise NotFoundError("Document not found for this lesson.")
+
+    learning_repo.update_status(conn, lesson_id, status="active")
+    ai_job = ai_job_repo.create(
+        conn, learning_session_id=session["id"], job_type="scene_generation", status="pending"
+    )
+
+    job_id = job_manager.submit(
+        _JOB_KIND,
+        workers.generate_scenes_job,
+        user_id=principal.id,
+        entity_id=session["id"],
+        session_id=session["id"],
+        document_id=session["document_id"],
+        focus=session.get("title") or doc.get("title") or "",
+        scene_count=5,
+        ai_job_id=ai_job["id"],
+    )
+
+    logger.info("re-enqueued scene generation for session %s, job %s", session["id"], job_id)
     return LessonGenerateResponse(
         lessonId=session["id"],
         job=JobRef(job_id=job_id, status="pending", kind=_JOB_KIND),

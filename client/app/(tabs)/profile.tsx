@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, 
   Text, 
@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { useAppStore } from '../../store';
 import { Redirect } from 'expo-router';
-import { profileApi, apiErrorMessage } from '../../services/api';
+import { profileApi, notificationsApi, apiErrorMessage } from '../../services/api';
 import ProUpgradeModal from '../../components/ProUpgradeModal';
 import WebSettings from '../../web/pages/Settings';
 
@@ -55,6 +55,23 @@ function MobileProfileScreen() {
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(true);
   const [hapticFeedback, setHapticFeedback] = useState(true);
+
+  useEffect(() => {
+    if (accessToken) {
+      notificationsApi.getPreferences()
+        .then((prefs) => setNotifications(prefs.daily_mastery))
+        .catch(() => {});
+    }
+  }, [accessToken]);
+
+  const handleToggleNotifications = async (val: boolean) => {
+    setNotifications(val);
+    try {
+      await notificationsApi.updatePreferences({ daily_mastery: val, reminders: val });
+    } catch {
+      // Best-effort setting sync
+    }
+  };
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(user?.name || '');
@@ -221,7 +238,7 @@ function MobileProfileScreen() {
             </View>
             <Switch
               value={notifications}
-              onValueChange={setNotifications}
+              onValueChange={handleToggleNotifications}
               trackColor={{ false: '#1b1d26', true: '#991bf7' }}
               thumbColor={notifications ? '#dfb7ff' : '#6e748a'}
             />
@@ -348,7 +365,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   avatarOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.6)',
     alignItems: 'center',
     justifyContent: 'center',

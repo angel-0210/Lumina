@@ -16,6 +16,7 @@
     },
     "android": {
       "package": "com.angel.lumina",
+      "googleServicesFile": "./google-services.json",
       "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -43,6 +44,13 @@
           "image": "./client/assets/images/splash-icon.png",
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./client/assets/images/icon.png",
+          "color": "#ffffff"
         }
       ],
       "expo-font",

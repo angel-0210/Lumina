@@ -104,6 +104,14 @@ function MobileSignupScreen() {
 
     try {
       const session = await authApi.signup(fullName.trim(), email.trim().toLowerCase(), password);
+      if (session.requires_verification) {
+        Alert.alert(
+          'Verification Required',
+          session.message || 'Account created! Please verify your email before logging in.',
+          [{ text: 'Proceed to Login', onPress: () => router.replace('/login') }]
+        );
+        return;
+      }
       setAuth(session.access_token, session.refresh_token ?? null, session.user);
       router.replace('/');
     } catch (err) {

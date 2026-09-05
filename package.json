@@ -6,8 +6,8 @@
   "scripts": {
     "start": "expo start",
     "mobile": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "api": "cd server && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
   },

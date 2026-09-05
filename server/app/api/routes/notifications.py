@@ -21,6 +21,12 @@ class UnregisterTokenRequest(BaseModel):
     token: str = Field(..., description="Expo Push Token to remove")
 
 
+class UpdatePreferencesRequest(BaseModel):
+    daily_mastery: bool = Field(default=True)
+    reminders: bool = Field(default=True)
+    streaks: bool = Field(default=True)
+
+
 @router.post("/tokens", status_code=status.HTTP_201_CREATED)
 def register_device_token(req: RegisterTokenRequest, principal: CurrentUser, conn: DbConn):
     """Register an authenticated device token for push notifications."""
@@ -37,3 +43,21 @@ def unregister_device_token(req: UnregisterTokenRequest, principal: CurrentUser,
         conn, user_id=principal.id, token=req.token
     )
     return success(result)
+
+
+@router.get("/preferences")
+def get_preferences(principal: CurrentUser, conn: DbConn):
+    """Fetch user notification preferences."""
+    return success(notification_service.get_preferences(conn, principal.id))
+
+
+@router.put("/preferences")
+def update_preferences(req: UpdatePreferencesRequest, principal: CurrentUser, conn: DbConn):
+    """Update user notification preferences."""
+    return success(notification_service.update_preferences(conn, principal.id, req.model_dump()))
+
+
+@router.post("/trigger-daily")
+def trigger_daily_notifications(conn: DbConn):
+    """Trigger processing of daily mastery notifications."""
+    return success(notification_service.process_daily_mastery_notifications(conn))

@@ -33,9 +33,11 @@ export default function WebLessonPlayer() {
   const [generatingSceneIndex, setGeneratingSceneIndex] = useState<number | null>(null);
   const [generatingKind, setGeneratingKind] = useState<'image' | 'video' | null>(null);
   const [generationProgress, setGenerationProgress] = useState<number>(0);
-  
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [retrying, setRetrying] = useState(false);
+  const [pollTimeout, setPollTimeout] = useState(false);
 
   const fetchLesson = async (showLoading = true) => {
     if (!id) return;
@@ -54,6 +56,20 @@ export default function WebLessonPlayer() {
       router.back();
     } finally {
       if (showLoading) setLoading(false);
+    }
+  };
+
+  const handleRetry = async () => {
+    if (!id) return;
+    setRetrying(true);
+    setPollTimeout(false);
+    try {
+      await learningApi.retryLesson(id);
+      fetchLesson(true);
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Could not restart scene generation.'));
+    } finally {
+      setRetrying(false);
     }
   };
 
@@ -78,7 +94,11 @@ export default function WebLessonPlayer() {
     pollRef.current = setInterval(() => {
       pollCount++;
       if (pollCount >= maxPolls) {
-        if (pollRef.current) clearInterval(pollRef.current);
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+        setPollTimeout(true);
       }
       fetchLesson(false);
     }, 4000);
@@ -173,7 +193,7 @@ export default function WebLessonPlayer() {
 
   if (!lesson) return null;
 
-  if (lesson.status === 'failed') {
+  if (lesson.status === 'failed' || (pollTimeout && (!lesson.scenes || lesson.scenes.length === 0))) {
     return (
       <WebLayout>
         <View style={styles.centerContainer}>
@@ -182,14 +202,21 @@ export default function WebLessonPlayer() {
             Slide Synthesis Failed
           </Text>
           <Text style={styles.loadingSub}>
-            Lumina AI could not complete scene generation for this lesson. Please try again.
+            Lumina AI could not complete scene generation for this lesson right now. Please try again.
           </Text>
           <TouchableOpacity
             style={[styles.backButton, { marginTop: 20, backgroundColor: 'rgba(223, 183, 255, 0.1)', borderColor: '#dfb7ff' }]}
-            onPress={() => fetchLesson(true)}
+            onPress={handleRetry}
+            disabled={retrying}
           >
-            <Ionicons name="refresh" size={16} color="#dfb7ff" />
-            <Text style={{ color: '#dfb7ff', fontWeight: '600', fontSize: 13 }}>Retry Slide Generation</Text>
+            {retrying ? (
+              <ActivityIndicator size="small" color="#dfb7ff" />
+            ) : (
+              <>
+                <Ionicons name="refresh" size={16} color="#dfb7ff" />
+                <Text style={{ color: '#dfb7ff', fontWeight: '600', fontSize: 13, marginLeft: 6 }}>Retry Slide Generation</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
       </WebLayout>

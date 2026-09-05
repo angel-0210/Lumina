@@ -1,17 +1,32 @@
 import { useFonts } from 'expo-font';
-import { Stack, usePathname, useRouter } from 'expo-router';
+import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useState } from 'react';
-import { Platform, View, ActivityIndicator } from 'react-native';
+import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { useAppStore, restoreAuth } from '../store';
-import { authApi, notificationsApi, apiErrorMessage } from '../services/api';
-import { ErrorBoundary } from '../components/ErrorBoundary';
+import { authApi, notificationsApi } from '../services/api';
+import AppErrorBoundary from '../components/ErrorBoundary';
+
+// Export Expo Router's ErrorBoundary for segment error handling
+export { ErrorBoundary } from 'expo-router';
+
+// Configure foreground notification presentation
+if (Platform.OS !== 'web') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 
 // Prevent splash screen auto-hiding until session restore is done.
-SplashScreen.preventAutoHideAsync();
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
@@ -27,62 +42,89 @@ export default function RootLayout() {
   const clearAuth = useAppStore((s) => s.clearAuth);
   const setSessionRestored = useAppStore((s) => s.setSessionRestored);
 
+  // Deep-link notification response listener
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data;
+      if (data?.topicId) {
+        const { router } = require('expo-router');
+        router.push(`/mastery/${data.topicId}`);
+      } else if (data?.lessonId) {
+        const { router } = require('expo-router');
+        router.push(`/lesson/${data.lessonId}`);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
   // Register push notifications token when authenticated on native mobile
   useEffect(() => {
-    // Remote notifications in expo-notifications were removed from Expo Go in SDK 53+.
-    // Only register push tokens in standalone / development builds.
-    const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
+    const isExpoGo =
+      Constants.appOwnership === 'expo' ||
+      Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
     if (Platform.OS !== 'web' && accessToken && !isExpoGo) {
       (async () => {
         try {
-          const { granted } = await Notifications.requestPermissionsAsync();
+          const { status: existingStatus } = await Notifications.getPermissionsAsync();
+          let finalStatus = existingStatus;
+          if (existingStatus !== 'granted') {
+            const { status } = await Notifications.requestPermissionsAsync();
+            finalStatus = status;
+          }
 
-          if (granted) {
-            const tokenData = await Notifications.getExpoPushTokenAsync();
+          if (finalStatus === 'granted') {
+            const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+            const tokenData = await Notifications.getExpoPushTokenAsync(
+              projectId ? { projectId } : undefined
+            );
             if (tokenData?.data) {
               await notificationsApi.registerToken(tokenData.data, Platform.OS);
+              console.log('[NOTIFICATION] Push token registered successfully.');
             }
           }
-        } catch {
-          // Push notification registration is optional/best-effort
+        } catch (err) {
+          console.log('[NOTIFICATION] Push registration skipped or failed:', err);
         }
       })();
+    } else if (isExpoGo) {
+      console.log('[NOTIFICATION] Running in Expo Go — remote push notification token registration skipped.');
     }
   }, [accessToken]);
 
-
-
   // On first mount: attempt to restore the previous session from AsyncStorage.
-  // If the stored access token is still valid, pre-populate the store.
-  // If it's expired, try the refresh token. If that fails, clear and force login.
+  // Fail-safe timeout guarantees sessionRestored is set even if network/storage stalls.
   useEffect(() => {
     let cancelled = false;
-    // Fail-safe timer to prevent infinite loading if restoreAuth or network stalls
     const timeoutTimer = setTimeout(() => {
-      if (!cancelled) setSessionRestored();
-    }, 5000);
+      if (!cancelled) {
+        console.log('[BOOT] Fail-safe session restore timeout fired');
+        setSessionRestored();
+      }
+    }, 3000);
 
     (async () => {
       try {
+        console.log('[AUTH] Checking stored session...');
         const stored = await restoreAuth();
         if (cancelled) return;
 
         if (stored?.accessToken) {
           try {
-            // Pre-populate store with stored credentials so the /me request is authenticated
             setAuth(stored.accessToken, stored.refreshToken, stored.user);
-            // Validate the stored token by calling /me.
             const user = await authApi.me();
             if (!cancelled) {
               setAuth(stored.accessToken, stored.refreshToken, user);
+              console.log('[AUTH] Session restored successfully for user:', user.email);
             }
           } catch {
-            // Token may be expired — try to refresh.
             if (stored.refreshToken) {
               try {
                 const session = await authApi.refresh(stored.refreshToken);
                 if (!cancelled) {
                   setAuth(session.access_token, session.refresh_token ?? null, session.user);
+                  console.log('[AUTH] Token refreshed successfully.');
                 }
               } catch {
                 if (!cancelled) clearAuth();
@@ -91,15 +133,21 @@ export default function RootLayout() {
               if (!cancelled) clearAuth();
             }
           }
+        } else {
+          console.log('[AUTH] No stored session found.');
         }
       } catch (e) {
-        console.error('Session restore error:', e);
+        console.error('[AUTH ERROR] Session restore error:', e);
         if (!cancelled) clearAuth();
       } finally {
         clearTimeout(timeoutTimer);
-        if (!cancelled) setSessionRestored();
+        if (!cancelled) {
+          setSessionRestored();
+          console.log('[BOOT] Session restore complete');
+        }
       }
     })();
+
     return () => {
       cancelled = true;
       clearTimeout(timeoutTimer);
@@ -108,7 +156,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (loaded) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch(() => {});
     }
   }, [loaded]);
 
@@ -117,9 +165,9 @@ export default function RootLayout() {
   }
 
   return (
-    <ErrorBoundary>
+    <AppErrorBoundary>
       <RootLayoutNav />
-    </ErrorBoundary>
+    </AppErrorBoundary>
   );
 }
 
@@ -140,3 +188,4 @@ function RootLayoutNav() {
     </ThemeProvider>
   );
 }
+

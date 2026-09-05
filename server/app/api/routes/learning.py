@@ -74,3 +74,9 @@ def generate_lesson(req: LessonGenerateRequest, principal: AiUser, conn: DbConn)
 def get_lesson(lesson_id: str, principal: CurrentUser, conn: DbConn):
     """Return one lesson with its ordered scenes."""
     return success(learning_service.get_lesson(conn, principal, lesson_id))
+
+
+@lessons_router.post("/{lesson_id}/retry", status_code=status.HTTP_202_ACCEPTED)
+def retry_lesson(lesson_id: str, principal: AiUser, conn: DbConn):
+    """Re-enqueue scene generation for an existing lesson (returns 202 + job)."""
+    return success(learning_service.retry_lesson_generation(conn, principal, lesson_id))

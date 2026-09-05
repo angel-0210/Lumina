@@ -489,6 +489,9 @@ export const learningApi = {
     client
       .post('/lessons', { documentId, sceneCount, focus })
       .then((r) => r.data),
+
+  retryLesson: (lessonId: string): Promise<LessonGenerateResponse> =>
+    client.post(`/lessons/${lessonId}/retry`).then((r) => r.data),
 };
 
 // ─── Profile ─────────────────────────────────────────────────────────────────
@@ -734,12 +737,24 @@ export const subscriptionApi = {
 
 // ─── Push Notifications ──────────────────────────────────────────────────────
 
+export interface NotificationPreferences {
+  daily_mastery: boolean;
+  reminders: boolean;
+  streaks: boolean;
+}
+
 export const notificationsApi = {
   registerToken: (token: string, platform = 'android'): Promise<{ registered: boolean }> =>
     client.post('/notifications/tokens', { token, platform }).then((r) => r.data),
 
   unregisterToken: (token: string): Promise<{ unregistered: boolean }> =>
     client.delete('/notifications/tokens', { data: { token } }).then((r) => r.data),
+
+  getPreferences: (): Promise<NotificationPreferences> =>
+    client.get('/notifications/preferences').then((r) => r.data),
+
+  updatePreferences: (prefs: Partial<NotificationPreferences>): Promise<NotificationPreferences> =>
+    client.put('/notifications/preferences', prefs).then((r) => r.data),
 };
 
 export default client;

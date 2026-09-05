@@ -274,7 +274,7 @@ def generate_scenes_job(
                 output_token_count=result.output_tokens,
             )
     except Exception:
-        _fail_ai_job(ai_job_id)
+        _fail_ai_job(ai_job_id, session_id=session_id)
         raise
 
     ctx.set_result(
@@ -288,11 +288,13 @@ def generate_scenes_job(
     logger.info("generated %d scenes for session %s", len(result.scenes), session_id)
 
 
-def _fail_ai_job(ai_job_id: str) -> None:
-    """Best-effort mark of an AI generation job as failed (never raises)."""
+def _fail_ai_job(ai_job_id: str, session_id: Optional[str] = None) -> None:
+    """Best-effort mark of an AI generation job + learning session as failed (never raises)."""
     try:
         with connection_scope() as conn:
             ai_job_repo.update_status(conn, ai_job_id, status="failed")
+            if session_id:
+                learning_repo.update_status(conn, session_id, status="failed")
     except Exception:  # noqa: BLE001
         logger.debug("failed to mark ai job %s failed", ai_job_id, exc_info=True)
 

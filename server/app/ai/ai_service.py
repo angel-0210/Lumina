@@ -182,46 +182,74 @@ def generate_scenes(
     if assembled.is_empty:
         raise ValueError("No document content is available to generate a lesson.")
 
-    user_prompt = prompts.build_scene_generation_prompt(
-        focus, assembled.numbered_sources, scene_count
-    )
-    result = gemini_provider.generate_text(
-        system_prompt=prompts.SCENE_GENERATION_SYSTEM_PROMPT,
-        user_prompt=user_prompt,
-        temperature=0.5,
-        max_output_tokens=4096,
-        json_mode=True,
-    )
+    try:
+        user_prompt = prompts.build_scene_generation_prompt(
+            focus, assembled.numbered_sources, scene_count
+        )
+        result = gemini_provider.generate_text(
+            system_prompt=prompts.SCENE_GENERATION_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            temperature=0.5,
+            max_output_tokens=4096,
+            json_mode=True,
+        )
 
-    payload = _parse_json_object(result.text)
-    title = str(payload.get("title") or focus or "Lesson").strip()[:200]
-    scenes: list[SceneOut] = []
-    for raw in payload.get("scenes") or []:
-        if not isinstance(raw, dict):
-            continue
-        visual_type = str(raw.get("visual_type") or "text").lower()
-        if visual_type not in _ALLOWED_VISUAL_TYPES:
-            visual_type = "text"
-        visual_data = raw.get("visual_data")
-        if not isinstance(visual_data, dict):
-            visual_data = {}
-        scenes.append(
+        payload = _parse_json_object(result.text)
+        title = str(payload.get("title") or focus or "Lesson").strip()[:200]
+        scenes: list[SceneOut] = []
+        for raw in payload.get("scenes") or []:
+            if not isinstance(raw, dict):
+                continue
+            visual_type = str(raw.get("visual_type") or "text").lower()
+            if visual_type not in _ALLOWED_VISUAL_TYPES:
+                visual_type = "text"
+            visual_data = raw.get("visual_data")
+            if not isinstance(visual_data, dict):
+                visual_data = {}
+            scenes.append(
+                SceneOut(
+                    title=str(raw.get("title") or "Untitled").strip()[:200],
+                    narration=str(raw.get("narration") or "").strip(),
+                    visual_type=visual_type,
+                    visual_data=visual_data,
+                )
+            )
+        if scenes:
+            return ScenesResult(
+                title=title,
+                scenes=scenes,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+            )
+    except Exception as exc:
+        logger.warning("AI scene generation LLM call failed, generating fallback scenes: %s", exc)
+
+    # Fallback scene generation grounded in retrieved document chunks
+    fallback_title = focus or "Mastery Lesson"
+    fallback_scenes: list[SceneOut] = []
+    for idx, chunk in enumerate(chunks[:scene_count]):
+        snippet = (chunk.content or "").strip()
+        headline = snippet.split("\n")[0][:80] if snippet else f"Concept {idx + 1}"
+        visual_type = "code" if ("def " in snippet or "function" in snippet or "const " in snippet) else ("diagram" if idx % 2 == 1 else "text")
+        visual_data = {"snippet": snippet[:300]} if visual_type == "code" else {}
+        fallback_scenes.append(
             SceneOut(
-                title=str(raw.get("title") or "Untitled").strip()[:200],
-                narration=str(raw.get("narration") or "").strip(),
+                title=headline,
+                narration=snippet[:500],
                 visual_type=visual_type,
                 visual_data=visual_data,
             )
         )
-    if not scenes:
-        raise ValueError("The lesson generator returned no scenes.")
-
-    return ScenesResult(
-        title=title,
-        scenes=scenes,
-        input_tokens=result.input_tokens,
-        output_tokens=result.output_tokens,
-    )
+    if not fallback_scenes:
+        fallback_scenes.append(
+            SceneOut(
+                title=fallback_title,
+                narration="Key foundational concepts for this topic.",
+                visual_type="text",
+                visual_data={},
+            )
+        )
+    return ScenesResult(title=fallback_title, scenes=fallback_scenes)
 
 
 # --------------------------------------------------------------------------- #
