@@ -18,7 +18,11 @@ const getApiBaseUrl = (): string => {
   
   // Use explicit environment URL if it is set (production/web)
   if (envUrl && envUrl.trim()) {
-    return envUrl;
+    let clean = envUrl.trim().replace(/\/+$/, '');
+    if (clean.toLowerCase().endsWith('/api/v1')) {
+      clean = clean.slice(0, -7).replace(/\/+$/, '');
+    }
+    return clean;
   }
 
   // In Expo development, auto-detect host machine's LAN IP address from Metro server

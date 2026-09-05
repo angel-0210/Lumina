@@ -31,7 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api.router import api_router
-from app.api.routes import health
+from app.api.routes import auth, health
 from app.core.config import settings
 from app.core.database import dispose_engine
 from app.core.exceptions import register_exception_handlers
@@ -141,6 +141,8 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)  # /health, /health/ready at the root
     app.include_router(api_router, prefix=settings.api_v1_prefix)
+    # Root fallback mount for auth routes in case /api/v1 prefix is omitted by callers
+    app.include_router(auth.router, include_in_schema=False)
 
     return app
 

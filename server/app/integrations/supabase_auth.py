@@ -42,7 +42,10 @@ def _base_url() -> str:
         raise ServiceUnavailableError(
             "Authentication is not configured (SUPABASE_URL / SUPABASE_ANON_KEY missing)."
         )
-    return settings.supabase_url.rstrip("/") + "/auth/v1"
+    url = (settings.supabase_url or "").rstrip("/")
+    if url.lower().endswith("/auth/v1"):
+        url = url[:-8].rstrip("/")
+    return url + "/auth/v1"
 
 
 def _headers() -> dict[str, str]:

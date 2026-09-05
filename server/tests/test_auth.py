@@ -74,3 +74,26 @@ def test_get_current_user_me(client, auth_headers):
 def test_auth_unauthorized(client):
     response = client.get("/api/v1/auth/me")
     assert response.status_code == 401
+
+def test_root_fallback_auth_routes(client, mock_supabase_auth):
+    mock_user = {
+        "id": "44444444-4444-4444-4444-444444444444",
+        "email": "fallback@lumina.ai",
+        "user_metadata": {"name": "Fallback User"}
+    }
+    mock_supabase_auth["sign_in"].return_value = AuthSession(
+        access_token="mock_access_token",
+        refresh_token="mock_refresh_token",
+        expires_in=3600,
+        user=mock_user
+    )
+
+    # Test root fallback endpoint without /api/v1 prefix
+    response = client.post("/auth/login", json={
+        "email": "fallback@lumina.ai",
+        "password": "validpassword"
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["access_token"] == "mock_access_token"
+
