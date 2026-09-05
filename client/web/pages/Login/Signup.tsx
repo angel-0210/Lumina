@@ -29,6 +29,17 @@ export default function WebSignup() {
   const [passwordError, setPasswordError] = useState('');
   const [generalError, setGeneralError] = useState<string | null>(null);
 
+  const fillTestCredentials = () => {
+    const timestamp = Date.now().toString().slice(-5);
+    setFullName('Test Scholar');
+    setEmail(`test.learner.${timestamp}@lumina.ai`);
+    setPassword('LuminaTest123!');
+    setNameError('');
+    setEmailError('');
+    setPasswordError('');
+    setGeneralError(null);
+  };
+
   const handleSignup = async () => {
     setNameError('');
     setEmailError('');
@@ -70,7 +81,14 @@ export default function WebSignup() {
         router.replace('/');
       }
     } catch (err) {
-      setGeneralError(apiErrorMessage(err, 'Sign up failed. That email address may already be registered.'));
+      const msg = apiErrorMessage(err, 'Sign up failed. That email address may already be registered.');
+      const lower = msg.toLowerCase();
+      if (lower.includes('account created') || lower.includes('confirm your email') || lower.includes('verify your email')) {
+        setRegisteredEmail(email.trim().toLowerCase());
+        setVerificationSent(true);
+      } else {
+        setGeneralError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -164,6 +182,25 @@ export default function WebSignup() {
                 />
                 {passwordError && <Text style={styles.fieldError}>{passwordError}</Text>}
               </View>
+
+              {/* Quick Fill Test Email */}
+              <TouchableOpacity
+                style={{
+                  alignSelf: 'flex-end',
+                  marginBottom: 16,
+                  paddingVertical: 4,
+                  paddingHorizontal: 8,
+                  backgroundColor: 'rgba(223, 183, 255, 0.1)',
+                  borderRadius: 6,
+                  borderWidth: 1,
+                  borderColor: 'rgba(223, 183, 255, 0.25)',
+                }}
+                onPress={fillTestCredentials}
+              >
+                <Text style={{ color: '#dfb7ff', fontSize: 11, fontWeight: '600' }}>
+                  ⚡ Fill Test Credentials
+                </Text>
+              </TouchableOpacity>
 
               {/* Submit */}
               <TouchableOpacity
