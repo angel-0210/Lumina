@@ -31,8 +31,10 @@ export default function RootLayout() {
     if (Platform.OS !== 'web' && accessToken) {
       (async () => {
         try {
-          const { status } = await Notifications.requestPermissionsAsync();
-          if (status === 'granted') {
+
+          const { granted } = await Notifications.requestPermissionsAsync();
+
+          if (granted) {
             const tokenData = await Notifications.getExpoPushTokenAsync();
             if (tokenData?.data) {
               await notificationsApi.registerToken(tokenData.data, Platform.OS);

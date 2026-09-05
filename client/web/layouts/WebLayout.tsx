@@ -7,6 +7,7 @@ import {
   ScrollView,
   Platform,
   Image,
+  ImageStyle,
   ActivityIndicator,
   TextInput,
 } from 'react-native';
@@ -188,7 +189,7 @@ export default function WebLayout({ children }: WebLayoutProps) {
         >
           <View style={styles.avatarWrapper}>
             {avatarUrl ? (
-              <Image alt="User Profile" style={styles.avatar} source={{ uri: avatarUrl }} />
+              <Image alt="User Profile" style={styles.avatar as ImageStyle} source={{ uri: avatarUrl }} />
             ) : (
               <View style={styles.avatarFallback}>
                 <Text style={styles.avatarInitials}>{userInitials}</Text>
@@ -533,7 +534,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: '#f0f2f8',
     fontSize: 13,
-    outlineStyle: 'none',
+    outlineStyle: 'none' as any,
   },
   searchDropdown: {
     position: 'absolute',
@@ -647,6 +648,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
     paddingVertical: 32,
     backgroundColor: '#131313',
-    overflow: 'auto',
+    overflow: 'auto' as any,
   },
 });

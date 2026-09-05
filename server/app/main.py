@@ -108,15 +108,24 @@ def create_app() -> FastAPI:
             user_id_ctx.reset(token_user)
 
     # -- CORS (registered last => outermost, so it also decorates error responses).
-    allow_all = "*" in settings.cors_origins
+    allowed_origins = [o.strip() for o in settings.cors_origins if o.strip() and o.strip() != "*"]
+    default_origins = [
+        "https://lumina-delta-lake.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://localhost:19006",
+        "http://localhost:8081",
+    ]
+    for default_origin in default_origins:
+        if default_origin not in allowed_origins:
+            allowed_origins.append(default_origin)
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if allow_all else settings.cors_origins,
-        # "*" origins are incompatible with credentialed requests; Lumina uses
-        # bearer tokens (not cookies) so credentials are not required there.
-        allow_credentials=not allow_all,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-Request-ID", "Accept"],
         expose_headers=[_REQUEST_ID_HEADER],
     )
 

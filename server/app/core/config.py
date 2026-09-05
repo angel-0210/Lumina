@@ -82,8 +82,16 @@ class Settings(BaseModel):
     port: int = 8000
     log_level: str = "INFO"
     log_json: bool = False
-    # Comma-separated list of allowed CORS origins ("*" allows all).
-    cors_origins: list[str] = Field(default_factory=lambda: ["*"])
+    # Comma-separated list of allowed CORS origins.
+    cors_origins: list[str] = Field(
+        default_factory=lambda: [
+            "https://lumina-delta-lake.vercel.app",
+            "http://localhost:3000",
+            "http://localhost:8000",
+            "http://localhost:19006",
+            "http://localhost:8081",
+        ]
+    )
 
     # -- Database (Supabase Postgres) ---------------------------------------
     # e.g. postgresql+psycopg2://postgres:<pwd>@db.<ref>.supabase.co:5432/postgres
@@ -225,7 +233,16 @@ def _build_settings() -> Settings:
         port=_get_int("PORT", 8000),
         log_level=_get("LOG_LEVEL", "INFO"),
         log_json=_get_bool("LOG_JSON", False),
-        cors_origins=_get_list("CORS_ORIGINS", ["*"]),
+        cors_origins=_get_list(
+            "CORS_ORIGINS",
+            [
+                "https://lumina-delta-lake.vercel.app",
+                "http://localhost:3000",
+                "http://localhost:8000",
+                "http://localhost:19006",
+                "http://localhost:8081",
+            ],
+        ),
         database_url=_normalize_db_url(_get("DATABASE_URL", "sqlite:///./lumina_dev.db")),
         db_pool_size=_get_int("DB_POOL_SIZE", 10),
         db_max_overflow=_get_int("DB_MAX_OVERFLOW", 20),

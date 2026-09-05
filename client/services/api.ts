@@ -44,6 +44,7 @@ const API_PREFIX = '/api/v1';
 const client: AxiosInstance = axios.create({
   baseURL: BASE_URL + API_PREFIX,
   timeout: 30_000,
+  withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -88,8 +89,12 @@ client.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as any;
     
-    // Prevent infinite retry loops: max 1 retry per request
-    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+    // Prevent infinite retry loops: max 1 retry per request and ignore auth routes
+    const isAuthEndpoint = originalRequest?.url?.includes('/auth/login') ||
+                           originalRequest?.url?.includes('/auth/signup') ||
+                           originalRequest?.url?.includes('/auth/refresh');
+
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthEndpoint) {
       originalRequest._retry = true;
       const refreshToken = useAppStore.getState().refreshToken;
       
@@ -109,8 +114,15 @@ client.interceptors.response.use(
           console.log('[API] Token refreshed, retrying original request');
           return client(originalRequest);
         } catch (refreshErr) {
-          console.error('[API] Token refresh failed, clearing auth:', refreshErr);
-          useAppStore.getState().clearAuth();
+          console.error('[API] Token refresh failed:', refreshErr);
+          // Only clear auth if server explicitly rejected the refresh token (401/400/422).
+          // Do NOT clear session state on network blips, preflight failures, or CORS network errors.
+          if (axios.isAxiosError(refreshErr) && refreshErr.response) {
+            const status = refreshErr.response.status;
+            if (status === 401 || status === 400 || status === 422) {
+              useAppStore.getState().clearAuth();
+            }
+          }
           return Promise.reject(refreshErr);
         }
       }
@@ -196,7 +208,7 @@ export interface AuthResponse {
 
 export const authApi = {
   signup: (fullName: string, email: string, password: string): Promise<AuthResponse> =>
-    client.post('/auth/signup', { fullName, email, password }).then((r) => r.data),
+    client.post('/auth/signup', { fullName, full_name: fullName, email, password }).then((r) => r.data),
 
   login: (email: string, password: string): Promise<AuthResponse> =>
     client.post('/auth/login', { email, password }).then((r) => r.data),
@@ -208,7 +220,7 @@ export const authApi = {
     client.post('/auth/google', { idToken, accessToken }).then((r) => r.data),
 
   refresh: (refreshToken: string): Promise<AuthResponse> =>
-    client.post('/auth/refresh', { refreshToken }).then((r) => r.data),
+    client.post('/auth/refresh', { refreshToken, refresh_token: refreshToken }).then((r) => r.data),
 
   logout: (): Promise<void> =>
     client.post('/auth/logout').then(() => undefined),
