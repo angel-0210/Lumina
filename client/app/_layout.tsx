@@ -117,8 +117,9 @@ export default function RootLayout() {
               setAuth(stored.accessToken, stored.refreshToken, user);
               console.log('[AUTH] Session restored successfully for user:', user.email);
             }
-          } catch {
-            if (stored.refreshToken) {
+          } catch (meErr: any) {
+            console.warn('[AUTH] /auth/me call failed on boot, checking token status:', meErr);
+            if (stored.refreshToken && meErr?.response?.status === 401) {
               try {
                 const session = await authApi.refresh(stored.refreshToken);
                 if (!cancelled) {
@@ -128,9 +129,10 @@ export default function RootLayout() {
               } catch {
                 if (!cancelled) clearAuth();
               }
-            } else {
+            } else if (meErr?.response?.status === 401 && !stored.refreshToken) {
               if (!cancelled) clearAuth();
             }
+            // Non-401 network errors preserve the stored session safely.
           }
         } else {
           console.log('[AUTH] No stored session found.');
