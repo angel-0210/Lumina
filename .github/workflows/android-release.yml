@@ -68,8 +68,27 @@ jobs:
           echo "=== EAS STDOUT JSON ==="
           cat release/build_result.json || true
           
-          # Safely extract applicationArchiveUrl from JSON output using python regex
-          APK_URL=$(python3 -c "import sys, json, re; raw=sys.stdin.read(); match=re.search(r'\[.*\]', raw, re.DOTALL); print(json.loads(match.group(0))[0]['artifacts']['applicationArchiveUrl']) if match else print('')" < release/build_result.json)
+          # Safely extract applicationArchiveUrl or buildUrl from JSON output (dict or array)
+          APK_URL=$(python3 -c '
+import sys, json, re
+raw = sys.stdin.read()
+url = ""
+match = re.search(r"(\{.*\}|\[.*\])", raw, re.DOTALL)
+if match:
+    try:
+        data = json.loads(match.group(0))
+        if isinstance(data, list) and len(data) > 0:
+            url = data[0].get("artifacts", {}).get("applicationArchiveUrl") or data[0].get("artifacts", {}).get("buildUrl", "")
+        elif isinstance(data, dict):
+            url = data.get("artifacts", {}).get("applicationArchiveUrl") or data.get("artifacts", {}).get("buildUrl", "")
+    except Exception:
+        pass
+if not url:
+    m = re.search(r"\"(?:applicationArchiveUrl|buildUrl)\"\s*:\s*\"(https://[^\"]+)\"", raw)
+    if m:
+        url = m.group(1)
+print(url or "")
+' < release/build_result.json)
           
           if [ -z "$APK_URL" ] || [ "$APK_URL" = "null" ]; then
             echo "Error: Could not retrieve APK download URL from EAS build output."
