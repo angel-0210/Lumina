@@ -161,6 +161,7 @@ def ingest_document_job(
                 ai_job = ai_job_repo.create(
                     conn, learning_session_id=session["id"], job_type="scene_generation", status="pending"
                 )
+                jobs_to_submit.append((session["id"], ai_job["id"], topic_data.title))
                 # Send push notification for completed ingestion
                 try:
                     notification_service.send_push_notification(

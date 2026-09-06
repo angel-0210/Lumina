@@ -98,7 +98,7 @@ function MobileLessonPlayerScreen() {
     fetchMedia();
 
     let pollCount = 0;
-    const maxPolls = 15; // 60s max polling limit (15 * 4s)
+    const maxPolls = 45; // 180s max polling limit (45 * 4s)
 
     // Set up polling in case scenes are still generating
     pollRef.current = setInterval(() => {

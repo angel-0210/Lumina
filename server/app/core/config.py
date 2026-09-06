@@ -111,6 +111,10 @@ class Settings(BaseModel):
     supabase_jwt_aud: str = "authenticated"
     supabase_storage_bucket: str = "lumina-documents"
 
+    # -- Groq (text generation) ---------------------------------------------
+    groq_api_key: Optional[str] = None
+    groq_model: str = "groq/compound-mini"
+
     # -- Gemini (text generation + embeddings) ------------------------------
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-3.6-flash"
@@ -192,6 +196,10 @@ class Settings(BaseModel):
         return bool(self.supabase_url and self.supabase_service_role_key)
 
     @property
+    def groq_configured(self) -> bool:
+        return bool(self.groq_api_key)
+
+    @property
     def gemini_configured(self) -> bool:
         return bool(self.gemini_api_key)
 
@@ -255,6 +263,8 @@ def _build_settings() -> Settings:
         supabase_jwt_secret=_get("SUPABASE_JWT_SECRET"),
         supabase_jwt_aud=_get("SUPABASE_JWT_AUD", "authenticated"),
         supabase_storage_bucket=_get("SUPABASE_STORAGE_BUCKET", "lumina-documents"),
+        groq_api_key=_get("GROQ_API_KEY"),
+        groq_model=_get("GROQ_MODEL", "groq/compound-mini"),
         gemini_api_key=_get("GEMINI_API_KEY"),
         gemini_model=_get("GEMINI_MODEL", "gemini-3.6-flash"),
         gemini_embedding_model=_get("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"),

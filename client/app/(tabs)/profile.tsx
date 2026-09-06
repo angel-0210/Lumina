@@ -61,6 +61,20 @@ function MobileProfileScreen() {
       notificationsApi.getPreferences()
         .then((prefs) => setNotifications(prefs.daily_mastery))
         .catch(() => {});
+      
+      profileApi.get()
+        .then((prof) => {
+          if (user) {
+            setAuth(accessToken, refreshToken, {
+              ...user,
+              name: prof.name,
+              email: prof.email,
+              avatar_url: prof.avatar_url,
+              subscription: prof.subscription,
+            });
+          }
+        })
+        .catch(() => {});
     }
   }, [accessToken]);
 
@@ -155,8 +169,8 @@ function MobileProfileScreen() {
     }
   };
 
-  const displayName = user?.name || user?.email?.split('@')[0] || 'Initiate';
-  const displayEmail = user?.email || 'dev@lumina.ai';
+  const displayName = user?.name || user?.email?.split('@')[0] || 'User';
+  const displayEmail = user?.email || '';
   const avatarUrl = user?.avatar_url || user?.avatarUrl;
   const userInitials = (displayName || 'L').slice(0, 2).toUpperCase();
 

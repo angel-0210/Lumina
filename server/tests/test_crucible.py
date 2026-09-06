@@ -8,7 +8,7 @@ from app.repositories import document_repo, learning_repo
 def mock_crucible_ai():
     with patch("app.ai.rag.retrieve") as mock_retrieve, \
          patch("app.ai.gemini_provider.embed_query") as mock_embed, \
-         patch("app.ai.gemini_provider.generate_text") as mock_generate:
+         patch("app.ai.ai_service._generate_text") as mock_generate:
         
         mock_retrieve.return_value = []
         

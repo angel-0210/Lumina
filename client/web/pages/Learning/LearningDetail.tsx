@@ -88,7 +88,7 @@ export default function WebLessonPlayer() {
     fetchMedia();
 
     let pollCount = 0;
-    const maxPolls = 15; // 60s max polling limit
+    const maxPolls = 45; // 180s max polling limit (45 * 4s)
 
     // Poll for scenes if not generated yet
     pollRef.current = setInterval(() => {

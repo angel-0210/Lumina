@@ -19,8 +19,8 @@ from typing import Any, Optional
 
 from sqlalchemy.engine import Connection
 
-from app.ai import gemini_provider, prompts
-from app.ai.base import RetrievedChunk
+from app.ai import gemini_provider, groq_provider, prompts
+from app.ai.base import GenerationResult, RetrievedChunk
 from app.ai.rag import assemble_context, retrieve, source_labels
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -28,6 +28,35 @@ from app.repositories import chunk_repo
 from app.schemas.crucible import DIFFICULTY_TO_LEVEL
 
 logger = get_logger(__name__)
+
+
+def _generate_text(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float = 0.4,
+    max_output_tokens: int = 2048,
+    json_mode: bool = False,
+) -> GenerationResult:
+    """Generate text using Groq if configured, with automatic fallback to Gemini."""
+    if settings.groq_configured:
+        try:
+            return groq_provider.generate_text(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
+                json_mode=json_mode,
+            )
+        except Exception as exc:
+            logger.warning("Groq text generation failed, falling back to Gemini: %s", exc)
+    return gemini_provider.generate_text(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
+        json_mode=json_mode,
+    )
 
 _ALLOWED_VISUAL_TYPES = {"animation", "chart", "diagram", "code", "text"}
 _NO_CONTEXT_ANSWER = (
@@ -139,7 +168,7 @@ def answer_query(
         return AnswerResult(text=_NO_CONTEXT_ANSWER, grounded=False)
 
     user_prompt = prompts.build_rag_user_prompt(query, assembled.numbered_sources, history)
-    result = gemini_provider.generate_text(
+    result = _generate_text(
         system_prompt=prompts.RAG_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         temperature=0.3,
@@ -186,7 +215,7 @@ def generate_scenes(
         user_prompt = prompts.build_scene_generation_prompt(
             focus, assembled.numbered_sources, scene_count
         )
-        result = gemini_provider.generate_text(
+        result = _generate_text(
             system_prompt=prompts.SCENE_GENERATION_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=0.5,
@@ -280,7 +309,7 @@ def crucible_first_question(
     )
     system = prompts.CRUCIBLE_EXAMINER_SYSTEM_PROMPT.replace("{level}", level)
     user_prompt = prompts.build_crucible_first_prompt(level, assembled.numbered_sources)
-    result = gemini_provider.generate_text(
+    result = _generate_text(
         system_prompt=system, user_prompt=user_prompt, temperature=0.6, max_output_tokens=512
     )
     return QuestionResult(
@@ -307,7 +336,7 @@ def crucible_followup_question(
     user_prompt = prompts.build_crucible_followup_prompt(
         level, dialogue, assembled.numbered_sources
     )
-    result = gemini_provider.generate_text(
+    result = _generate_text(
         system_prompt=system, user_prompt=user_prompt, temperature=0.6, max_output_tokens=512
     )
     return QuestionResult(
@@ -329,7 +358,7 @@ def grade_crucible(
         conn, user_id=user_id, document_id=document_id, seed=dialogue[:500]
     )
     user_prompt = prompts.build_grading_prompt(dialogue, assembled.numbered_sources)
-    result = gemini_provider.generate_text(
+    result = _generate_text(
         system_prompt=prompts.GRADING_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         temperature=0.2,
@@ -516,7 +545,7 @@ def extract_topics_and_concepts(
         document_id,
         len(assembled.numbered_sources),
     )
-    result = gemini_provider.generate_text(
+    result = _generate_text(
         system_prompt=prompts.TOPIC_EXTRACTION_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         temperature=0.3,

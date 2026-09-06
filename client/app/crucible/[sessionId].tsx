@@ -269,9 +269,8 @@ function MobileCrucibleSessionScreen() {
       {/* Input tray for answers */}
       {status !== 'completed' && (
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-          enabled={Platform.OS === 'ios'}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 20}
         >
           <View style={[styles.inputTray, { paddingBottom: Math.max(12, insets.bottom + 4) }]}>
             <TextInput
