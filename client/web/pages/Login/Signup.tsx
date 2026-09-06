@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -19,6 +20,7 @@ export default function WebSignup() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const [verificationSent, setVerificationSent] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState('');
@@ -28,6 +30,48 @@ export default function WebSignup() {
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [generalError, setGeneralError] = useState<string | null>(null);
+
+  // Check if redirected back from Google OAuth with tokens in window.location.hash
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token')) {
+      const { parseOAuthTokens } = require('../../../services/api');
+      const { accessToken: token, refreshToken: refToken } = parseOAuthTokens(window.location.hash);
+      if (token) {
+        setGoogleLoading(true);
+        useAppStore.getState().setAuth(token, refToken, { id: '', email: null, name: null, subscription: 'free' });
+        authApi.me()
+          .then((user) => {
+            setAuth(token, refToken, user);
+            window.history.replaceState(null, '', window.location.pathname);
+            router.replace('/');
+          })
+          .catch((err) => {
+            setGeneralError(apiErrorMessage(err, 'Failed to complete Google authentication.'));
+            useAppStore.getState().clearAuth();
+          })
+          .finally(() => {
+            setGoogleLoading(false);
+          });
+      }
+    }
+  }, []);
+
+  const handleGoogleLogin = async () => {
+    setGeneralError(null);
+    try {
+      setGoogleLoading(true);
+      const redirectUri = Platform.OS === 'web' && typeof window !== 'undefined'
+        ? window.location.origin
+        : undefined;
+      const res = await authApi.getGoogleUrl(redirectUri);
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.location.href = res.url;
+      }
+    } catch (err) {
+      setGeneralError(apiErrorMessage(err, 'Failed to initialize Google OAuth login.'));
+      setGoogleLoading(false);
+    }
+  };
 
   const fillTestCredentials = () => {
     const timestamp = Date.now().toString().slice(-5);
@@ -143,6 +187,27 @@ export default function WebSignup() {
 
             {/* Card */}
             <View style={styles.card}>
+              {/* Google OAuth Button */}
+              <TouchableOpacity
+                style={styles.googleBtn}
+                onPress={handleGoogleLogin}
+                disabled={googleLoading}
+              >
+                {googleLoading ? (
+                  <ActivityIndicator color="#e2e2e2" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="logo-google" size={18} color="#dfb7ff" />
+                    <Text style={styles.googleBtnText}>Continue with Google</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>OR EMAIL</Text>
+                <View style={styles.dividerLine} />
+              </View>
               <View style={styles.field}>
                 <Text style={styles.label}>Full Name</Text>
                 <TextInput
@@ -289,6 +354,41 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 32,
     width: '100%',
+  },
+  googleBtn: {
+    flexDirection: 'row',
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 248, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 20,
+    cursor: 'pointer' as any,
+  },
+  googleBtnText: {
+    color: '#e2e2e2',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(245, 248, 255, 0.08)',
+  },
+  dividerText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6e748a',
+    letterSpacing: 1.2,
   },
   field: {
     marginBottom: 16,

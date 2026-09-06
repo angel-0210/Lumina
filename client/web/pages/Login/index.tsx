@@ -35,6 +35,31 @@ export default function WebLogin() {
     }
   }, [accessToken]);
 
+  // Check if redirected back from Google OAuth with tokens in window.location.hash
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token')) {
+      const { parseOAuthTokens } = require('../../../services/api');
+      const { accessToken: token, refreshToken: refToken } = parseOAuthTokens(window.location.hash);
+      if (token) {
+        setGoogleLoading(true);
+        useAppStore.getState().setAuth(token, refToken, { id: '', email: null, name: null, subscription: 'free' });
+        authApi.me()
+          .then((user) => {
+            setAuth(token, refToken, user);
+            window.history.replaceState(null, '', window.location.pathname);
+            router.replace('/');
+          })
+          .catch((err) => {
+            setGeneralError(apiErrorMessage(err, 'Failed to complete Google authentication.'));
+            useAppStore.getState().clearAuth();
+          })
+          .finally(() => {
+            setGoogleLoading(false);
+          });
+      }
+    }
+  }, []);
+
   const handleLogin = async () => {
     setEmailError('');
     setPasswordError('');

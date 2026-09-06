@@ -235,6 +235,21 @@ export const authApi = {
     client.get('/auth/me').then((r) => r.data),
 };
 
+export function parseOAuthTokens(rawUrlOrHash: string): { accessToken: string | null; refreshToken: string | null } {
+  if (!rawUrlOrHash) return { accessToken: null, refreshToken: null };
+  let queryString = rawUrlOrHash;
+  if (rawUrlOrHash.includes('#')) {
+    queryString = rawUrlOrHash.split('#')[1];
+  } else if (rawUrlOrHash.includes('?')) {
+    queryString = rawUrlOrHash.split('?')[1];
+  }
+  const params = new URLSearchParams(queryString);
+  return {
+    accessToken: params.get('access_token'),
+    refreshToken: params.get('refresh_token'),
+  };
+}
+
 
 // ─── Documents ───────────────────────────────────────────────────────────────
 

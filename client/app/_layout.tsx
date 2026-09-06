@@ -92,6 +92,25 @@ export default function RootLayout() {
     }
   }, [accessToken]);
 
+  // On web: check if returned from OAuth redirect with access_token in URL hash
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token')) {
+      const { parseOAuthTokens } = require('../services/api');
+      const { accessToken: token, refreshToken: refToken } = parseOAuthTokens(window.location.hash);
+      if (token) {
+        setAuth(token, refToken, { id: '', email: null, name: null, subscription: 'free' });
+        authApi.me()
+          .then((user) => {
+            setAuth(token, refToken, user);
+            window.history.replaceState(null, '', window.location.pathname);
+          })
+          .catch(() => {
+            clearAuth();
+          });
+      }
+    }
+  }, []);
+
   // On first mount: attempt to restore the previous session from AsyncStorage.
   // Fail-safe timeout guarantees sessionRestored is set even if network/storage stalls.
   useEffect(() => {

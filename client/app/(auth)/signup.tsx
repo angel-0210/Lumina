@@ -9,14 +9,19 @@ import {
   Platform,
   Alert
 } from 'react-native';
+import { ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 import { useAppStore } from '../../store';
-import { authApi, apiErrorMessage } from '../../services/api';
+import { authApi, apiErrorMessage, parseOAuthTokens } from '../../services/api';
 import Input from '../../components/Input';
 import Button from '../../components/Button';
 import WebSignup from '../../web/pages/Login/Signup';
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function SignupScreen() {
   if (Platform.OS === 'web') {
@@ -33,11 +38,37 @@ function MobileSignupScreen() {
   const [password, setPassword] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   
   // Validation error states
   const [nameError, setNameError] = useState('');
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+
+  const handleGoogleLogin = async () => {
+    try {
+      setGoogleLoading(true);
+      const redirectUrl = Linking.createURL('auth/callback');
+      const res = await authApi.getGoogleUrl(redirectUrl);
+      const result = await WebBrowser.openAuthSessionAsync(res.url, redirectUrl);
+
+      if (result.type === 'success' && result.url) {
+        const { accessToken: token, refreshToken: refToken } = parseOAuthTokens(result.url);
+        if (token) {
+          setAuth(token, refToken, { id: '', email: null, name: null, subscription: 'free' });
+          const user = await authApi.me();
+          setAuth(token, refToken, user);
+          router.replace('/');
+        } else {
+          Alert.alert('Authentication Error', 'No session token received from Google sign-in.');
+        }
+      }
+    } catch (err) {
+      Alert.alert('Google Sign-In Failed', apiErrorMessage(err, 'Failed to sign in with Google.'));
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   // Password strength calculation
   const getPasswordStrength = () => {
@@ -148,6 +179,29 @@ function MobileSignupScreen() {
             <View style={styles.glassCard}>
               {/* Soft decorative glow background effect */}
               <View style={styles.glowOverlay} />
+
+              {/* Google OAuth Button */}
+              <TouchableOpacity
+                style={styles.googleBtn}
+                onPress={handleGoogleLogin}
+                disabled={googleLoading}
+                activeOpacity={0.8}
+              >
+                {googleLoading ? (
+                  <ActivityIndicator color="#e2e2e2" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="logo-google" size={18} color="#dfb7ff" />
+                    <Text style={styles.googleBtnText}>Continue with Google</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>OR EMAIL</Text>
+                <View style={styles.dividerLine} />
+              </View>
 
               <Input
                 label="Full Name"
@@ -294,6 +348,40 @@ const styles = StyleSheet.create({
     borderRadius: 100,
     backgroundColor: 'rgba(153, 27, 247, 0.08)',
     zIndex: 0,
+  },
+  googleBtn: {
+    flexDirection: 'row',
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 248, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 20,
+  },
+  googleBtnText: {
+    color: '#e2e2e2',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(245, 248, 255, 0.08)',
+  },
+  dividerText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6e748a',
+    letterSpacing: 1.2,
   },
   strengthContainer: {
     flexDirection: 'row',
